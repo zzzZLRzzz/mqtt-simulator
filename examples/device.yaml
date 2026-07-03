@@ -1,0 +1,16 @@
+log_level: debug
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  broker:
+    address: tcp://broker.emqx.io:1883
+    keepalive: 60
+    timeout: 30s
+  credentials:
+    client_id: "zlrmqtt1"
+    username: ""
+    password: ""
+  connections: 1
+behavior:
+  mode: custom

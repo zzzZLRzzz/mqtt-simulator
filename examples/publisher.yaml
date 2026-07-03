@@ -1,0 +1,42 @@
+log_level: info
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  broker:
+    address: tcp://broker.emqx.io:1883
+    keepalive: 60
+    timeout: 30s
+  credentials:
+    client_id_prefix: "pubilsher-"
+    username_prefix: "username-"
+    password_prefix: "password-"
+  connections: 3
+  enable_rate_limit: true
+  rate_limits:
+    connect:
+      rate: 10
+      burst: 20
+    subscribe:
+      rate: 10
+      burst: 20
+    publish:
+      rate: 100
+      burst: 200
+    disconnect:
+      rate: 10
+      burst: 20
+behavior:
+  on_timer:
+    - interval: 3
+      publish:
+        topic: "devices/{{.ClientID}}/zlr"
+        payload: |
+         {
+          "device_id": "sensor-{{.ClientID}}",
+          "temperature": {{RandomFloat 20.0 45.0}},
+          "humidity": {{RandomInt 30 90}},
+          "timestamp": {{NowUnix}},
+         }
+        qos: 1
+        retain: false

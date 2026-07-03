@@ -1,0 +1,31 @@
+# Go build artifacts
+mqtt-simulator
+mqtt-simulator.exe
+
+# Go test coverage
+coverage.out
+coverage.html
+
+# Go module cache
+go.sum
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Benchmark results
+benchmark.out
