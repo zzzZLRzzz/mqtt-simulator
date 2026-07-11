@@ -64,6 +64,7 @@ type BehaviorConfig struct {
 	OnConnect []BehaviorAction `mapstructure:"on_connect"`
 	OnTimer   []BehaviorAction `mapstructure:"on_timer"`
 	OnMessage []BehaviorAction `mapstructure:"on_message"`
+	Custom    map[string]any   `mapstructure:"custom"`
 }
 
 type BehaviorAction struct {
@@ -88,7 +89,6 @@ type SendActionConfig struct {
 
 const (
 	BehaviorModeDeclarative = "declarative"
-	BehaviorModeCustom      = "custom"
 )
 
 func LoadConfig(path string) (*Config, error) {
@@ -147,9 +147,6 @@ func LoadConfig(path string) (*Config, error) {
 
 	if config.Behavior.Mode == "" {
 		config.Behavior.Mode = BehaviorModeDeclarative
-	}
-	if config.Behavior.Mode != BehaviorModeDeclarative && config.Behavior.Mode != BehaviorModeCustom {
-		return nil, fmt.Errorf("invalid behavior mode: %s, must be 'declarative' or 'custom'", config.Behavior.Mode)
 	}
 
 	return &config, nil

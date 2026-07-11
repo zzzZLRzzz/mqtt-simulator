@@ -62,7 +62,7 @@ behavior:
 			wantErr: false,
 		},
 		{
-			name: "invalid mode",
+			name: "custom mode with custom config",
 			content: `
 log_level: info
 engine:
@@ -71,9 +71,12 @@ engine:
     keepalive: 60
   connections: 1
 behavior:
-  mode: invalid
+  mode: usp
+  custom:
+    agent_id: "agent-001"
+    controller_id: "controller-001"
 `,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "invalid engine connections",
@@ -176,9 +179,5 @@ func TestBehaviorConfig_ModeValidation(t *testing.T) {
 
 	if cfg.Behavior.Mode != "" {
 		t.Errorf("expected empty mode, got %s", cfg.Behavior.Mode)
-	}
-
-	if cfg.Behavior.Mode != BehaviorModeDeclarative && cfg.Behavior.Mode != BehaviorModeCustom && cfg.Behavior.Mode != "" {
-		t.Errorf("invalid mode: %s", cfg.Behavior.Mode)
 	}
 }

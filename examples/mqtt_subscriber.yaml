@@ -29,5 +29,8 @@ engine:
 behavior:
   on_connect:
     - subscribe:
-        topic: "devices/+/zlr"
+        topic: "zlr/device/+"
+        qos: 1
+    - subscribe:
+        topic: "zlr/uspcontroller"
         qos: 1

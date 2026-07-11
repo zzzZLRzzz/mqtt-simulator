@@ -50,10 +50,10 @@ func (m *messageAdapter) Payload() []byte {
 }
 
 func (m *messageAdapter) Metadata() map[string]any {
-	return map[string]any{
-		"topic": m.msg.Topic(),
-		"qos":   m.msg.Qos(),
-	}
+	return (&mqttmeta.MQTTMessageMetadata{
+		Topic: m.msg.Topic(),
+		QoS:   m.msg.Qos(),
+	}).ToMap()
 }
 
 var _ common.Message = (*messageAdapter)(nil)
@@ -74,15 +74,16 @@ func NewClient(
 	}
 
 	m := &Client{
-		clientID:      creds.ClientID,
-		broker:        broker,
-		logger:        logger,
-		creds:         creds,
-		behavior:      beh,
-		actionHandler: actionHandler,
-		subscriptions: make([]subscriptionInfo, 0),
-		isReceiving:   true,
-		stopReconnect: make(chan struct{}),
+		clientID:         creds.ClientID,
+		broker:           broker,
+		logger:           logger,
+		creds:            creds,
+		behavior:         beh,
+		actionHandler:    actionHandler,
+		subscriptions:    make([]subscriptionInfo, 0),
+		isReceiving:      true,
+		isInitialConnect: true,
+		stopReconnect:    make(chan struct{}),
 	}
 
 	return m
@@ -94,21 +95,14 @@ func (m *Client) Connect() error {
 		return err
 	}
 
-	m.mu.Lock()
-	m.isInitialConnect = true
-	m.mu.Unlock()
-
 	opts.SetOnConnectHandler(func(c mqttlib.Client) {
 		m.logger.Info("[%s] connected to %s", m.clientID, m.broker.Address)
 		m.mu.Lock()
-		isInitial := m.isInitialConnect
 		m.isInitialConnect = false
 		m.mu.Unlock()
 
-		if !isInitial {
-			actions := m.behavior.OnConnect(m)
-			m.actionHandler(m, actions)
-		}
+		actions := m.behavior.OnConnect(m)
+		m.actionHandler(m, actions)
 	})
 
 	opts.SetConnectionLostHandler(func(c mqttlib.Client, err error) {
@@ -131,6 +125,10 @@ func (m *Client) Connect() error {
 		if !isReceiving {
 			return
 		}
+
+		metrics.MessagesReceived.WithLabelValues(msg.Topic()).Inc()
+		metrics.IncReceived()
+
 		actions := m.behavior.OnMessage(m, &messageAdapter{msg: msg})
 		m.actionHandler(m, actions)
 	})

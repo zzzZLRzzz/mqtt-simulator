@@ -8,7 +8,8 @@ A configurable connection conductor for managing and simulating long-lived conne
 
 - **Protocol Agnostic**: Supports multiple protocols via plugin architecture
 - **Declarative Behavior**: Define client behavior through YAML configuration
-- **Custom Behavior**: Implement custom behavior via the `Behavior` interface
+- **Custom Behavior**: Implement custom behavior via the `Behavior` interface with registry pattern
+- **USP/TR-369 Support**: Built-in support for USP/TR-369 protocol with boot event notification
 - **Rate Limiting**: Configurable rate limits for connect, subscribe, send, and disconnect operations
 - **Metrics**: Built-in Prometheus metrics for monitoring
 - **Template Support**: Go template support for dynamic target and payload generation
@@ -98,6 +99,47 @@ behavior:
         qos: 1
 ```
 
+### Example: USP/TR-369 Boot Event
+
+```yaml
+log_level: debug
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  broker:
+    address: tcp://localhost:1883
+    keepalive: 60
+    timeout: 30s
+  credentials:
+    client_id_prefix: "usp-agent-"
+  connections: 3
+behavior:
+  mode: usp
+  custom:
+    agent_id: "agent-001"
+    controller_id: "controller-001"
+    topic_prefix: "/usp/endpoint"
+```
+
+This configuration enables USP/TR-369 protocol behavior, which sends a Boot event notification on MQTT connect. The `custom` section allows passing behavior-specific configuration parameters.
+
+### Example: Custom Mode
+
+```yaml
+log_level: debug
+engine:
+  broker:
+    address: tcp://localhost:1883
+  credentials:
+    client_id: "device-001"
+  connections: 1
+behavior:
+  mode: custom
+```
+
+When `mode: custom` is set, the simulator uses the built-in `USPBehavior`. For production use, implement your own custom behavior via the Behavior interface.
+
 ## Behavior Configuration
 
 ### Actions
@@ -120,11 +162,27 @@ behavior:
 
 ## Custom Behavior Implementation
 
-To implement custom behavior, implement the `behavior.Behavior` interface:
+### Step 1: Implement the Behavior Interface
 
 ```go
 type MyCustomBehavior struct {
-    logger *logging.Logger
+    logger      *logging.Logger
+    customParam string
+}
+
+func NewMyCustomBehavior(cfg config.BehaviorConfig, logger *logging.Logger) behavior.Behavior {
+    b := &MyCustomBehavior{
+        logger:      logger,
+        customParam: "default",
+    }
+    
+    if cfg.Custom != nil {
+        if v, ok := cfg.Custom["custom_param"]; ok {
+            b.customParam = fmt.Sprintf("%v", v)
+        }
+    }
+    
+    return b
 }
 
 func (b *MyCustomBehavior) OnConnect(client client.Client) []action.Action {
@@ -146,7 +204,40 @@ func (b *MyCustomBehavior) OnTick(client client.Client, tick int64) []action.Act
 
 func (b *MyCustomBehavior) OnDisconnect(client client.Client) {
 }
+
+var _ behavior.Behavior = (*MyCustomBehavior)(nil)
 ```
+
+### Step 2: Register the Behavior
+
+In your main.go or init() function:
+
+```go
+func init() {
+    behavior.Register("my_custom", NewMyCustomBehavior)
+}
+```
+
+### Step 3: Configure in YAML
+
+```yaml
+behavior:
+  mode: my_custom
+  custom:
+    custom_param: "my_value"
+```
+
+### Behavior Registry
+
+The behavior registry allows dynamic behavior selection based on the `mode` field in the configuration. The following modes are built-in:
+
+| Mode | Behavior | Description |
+|------|----------|-------------|
+| `declarative` | `DeclarativeBehavior` | YAML-driven behavior |
+| `custom` | `USPBehavior` | USP/TR-369 behavior |
+| `usp` | `USPBehavior` | USP/TR-369 behavior (alias) |
+
+Custom behaviors can be registered using `behavior.Register(name, factory)`.
 
 ## Metrics
 
@@ -175,7 +266,8 @@ conn-conductor/
 │   ├── behavior/           # Behavior implementations
 │   │   ├── behavior.go     # Behavior interface
 │   │   ├── mqtt_declarative.go # MQTT declarative behavior
-│   │   └── usp.go          # Custom USP/TR-369 behavior
+│   │   ├── registry.go     # Behavior registry and factory pattern
+│   │   └── usp.go          # USP/TR-369 behavior with boot event
 │   ├── client/             # Client interfaces
 │   │   ├── client.go       # Generic Client interface
 │   │   └── mqtt/           # MQTT client implementation
@@ -193,12 +285,19 @@ conn-conductor/
 │   │   └── credential.go   # Client ID/username/password generation
 │   ├── logging/            # Logging utilities
 │   │   └── logging.go      # Logger implementation
-│   └── metrics/            # Prometheus metrics
-│       └── metrics.go      # Metrics server
+│   ├── metrics/            # Prometheus metrics
+│   │   └── metrics.go      # Metrics server
+│   └── usp/                # USP/TR-369 protocol definitions
+│       ├── usp-msg-1-5.proto      # USP Message protobuf schema
+│       ├── usp-msg-1-5.pb.go      # Generated Go code
+│       └── usp_record/            # USP Record protobuf
+│           ├── usp-record-1-5.proto
+│           └── usp-record-1-5.pb.go
 └── examples/               # Example configurations
     ├── mqtt_publisher.yaml
     ├── mqtt_subscriber.yaml
-    └── device.yaml
+    ├── device.yaml
+    └── usp-boot.yaml       # USP boot event example
 ```
 
 ## Architecture

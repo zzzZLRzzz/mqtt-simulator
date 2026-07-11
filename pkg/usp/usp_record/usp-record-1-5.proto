@@ -1,0 +1,67 @@
+syntax = "proto3";
+package usp_record;
+option go_package = "conn-conductor/pkg/usp/usp_record";
+message Record {
+  string version = 1;
+  string to_id = 2;
+  string from_id = 3;
+  string originator_id = 14;
+  string destination_id = 15;
+  PayloadSecurity payload_security = 4;
+  bytes mac_signature = 5;
+  bytes sender_cert = 6;
+  oneof record_type {
+    NoSessionContextRecord no_session_context = 7;
+    SessionContextRecord session_context = 8;
+    WebSocketConnectRecord websocket_connect = 9;
+    MQTTConnectRecord mqtt_connect = 10;
+    STOMPConnectRecord stomp_connect = 11;
+    DisconnectRecord disconnect = 12;
+    UDSConnectRecord uds_connect = 13;
+  }
+  enum PayloadSecurity {
+    PLAINTEXT = 0;
+    TLS12 = 1;
+  }
+}
+message NoSessionContextRecord {
+  bytes payload = 2;
+}
+message SessionContextRecord {
+  uint64 session_id = 1;
+  uint64 sequence_id = 2;
+  uint64 expected_id = 3;
+  uint64 retransmit_id = 4;
+  PayloadSARState payload_sar_state = 5;
+  PayloadSARState payloadrec_sar_state = 6;
+  repeated bytes payload = 7;
+  enum PayloadSARState {
+    NONE = 0;
+    BEGIN = 1;
+    INPROCESS = 2;
+    COMPLETE = 3;
+  }
+}
+message WebSocketConnectRecord {
+}
+message MQTTConnectRecord {
+  MQTTVersion version = 1;
+  string subscribed_topic = 2;
+  enum MQTTVersion {
+    V3_1_1 = 0;
+    V5 = 1;
+  }
+}
+message STOMPConnectRecord {
+  STOMPVersion version = 1;
+  string subscribed_destination = 2;
+  enum STOMPVersion {
+    V1_2 = 0;
+  }
+}
+message UDSConnectRecord {
+}
+message DisconnectRecord {
+  string reason = 1;
+  fixed32 reason_code = 2;
+}

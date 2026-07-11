@@ -1,0 +1,22 @@
+log_level: info
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  broker:
+    address: tcp://broker.emqx.io:1883
+    keepalive: 60
+    timeout: 30s
+  credentials:
+    client_id_prefix: "device-zlr"
+    username_prefix: "username-"
+    password_prefix: "password-"
+  connections: 1
+behavior:
+  mode: mqtt_usp
+  custom:
+    agent_id: "device-zlr"
+    agent_topic_fmt: "zlr/device/%s"
+    controller_id: "uspcontroller"
+    controller_topic_fmt: "zlr/uspcontroller"
+    

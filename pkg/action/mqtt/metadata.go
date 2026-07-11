@@ -3,6 +3,7 @@ package mqtt
 const (
 	MetadataKeyQoS    = "qos"
 	MetadataKeyRetain = "retain"
+	MetadataKeyTopic  = "topic"
 )
 
 type MQTTPublishMetadata struct {
@@ -60,5 +61,37 @@ func ParseSubscribeMetadata(metadata map[string]any) *MQTTSubscribeMetadata {
 func (m *MQTTSubscribeMetadata) ToMap() map[string]any {
 	return map[string]any{
 		MetadataKeyQoS: m.QoS,
+	}
+}
+
+type MQTTMessageMetadata struct {
+	Topic string
+	QoS   byte
+}
+
+func ParseMessageMetadata(metadata map[string]any) *MQTTMessageMetadata {
+	if metadata == nil {
+		return &MQTTMessageMetadata{}
+	}
+
+	result := &MQTTMessageMetadata{}
+
+	if t, ok := metadata[MetadataKeyTopic].(string); ok {
+		result.Topic = t
+	}
+
+	if q, ok := metadata[MetadataKeyQoS].(byte); ok {
+		result.QoS = q
+	} else if q, ok := metadata[MetadataKeyQoS].(int); ok {
+		result.QoS = byte(q)
+	}
+
+	return result
+}
+
+func (m *MQTTMessageMetadata) ToMap() map[string]any {
+	return map[string]any{
+		MetadataKeyTopic: m.Topic,
+		MetadataKeyQoS:   m.QoS,
 	}
 }

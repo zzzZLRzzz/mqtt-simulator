@@ -30,7 +30,7 @@ behavior:
   on_timer:
     - interval: 3
       send:
-        target: "devices/{{.ClientID}}/zlr"
+        target: "zlr/device/{{.ClientID}}"
         payload: |
          {
           "device_id": "sensor-{{.ClientID}}",

@@ -20,7 +20,7 @@ type DeclarativeBehavior struct {
 	timerActions []timerAction
 }
 
-func NewDeclarativeBehavior(cfg config.BehaviorConfig, logger *logging.Logger) *DeclarativeBehavior {
+func NewDeclarativeBehavior(cfg config.BehaviorConfig, logger *logging.Logger) Behavior {
 	b := &DeclarativeBehavior{
 		config: cfg,
 		logger: logger,
@@ -50,11 +50,8 @@ func (b *DeclarativeBehavior) OnMessage(client client.Client, msg common.Message
 	payload := string(msg.Payload())
 	clientID := client.ID()
 
-	metadata := msg.Metadata()
-	topic := ""
-	if t, ok := metadata["topic"].(string); ok {
-		topic = t
-	}
+	msgMeta := mqttmeta.ParseMessageMetadata(msg.Metadata())
+	topic := msgMeta.Topic
 
 	if b.logger.IsInfo() {
 		b.logger.Info("[%s] received message from %s", clientID, topic)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -15,6 +16,8 @@ import (
 )
 
 var (
+	receivedCount int64
+
 	ConnectionsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "conn_conductor_connections_total",
@@ -155,4 +158,12 @@ func DecConnection() {
 
 func IncConnectionFailed() {
 	ConnectionsFailed.Inc()
+}
+
+func IncReceived() {
+	atomic.AddInt64(&receivedCount, 1)
+}
+
+func GetReceivedCount() int64 {
+	return atomic.LoadInt64(&receivedCount)
 }

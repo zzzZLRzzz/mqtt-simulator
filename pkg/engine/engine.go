@@ -278,9 +278,6 @@ func (e *Engine) connectAll() {
 			metrics.IncConnection()
 			e.logger.Info("[%s] connected successfully", creds.ClientID)
 
-			actions := e.behavior.OnConnect(client)
-			e.SubmitActions(client, actions)
-
 		}(i)
 	}
 
@@ -380,5 +377,6 @@ func (e *Engine) Stop() {
 		e.pool.DisconnectAll()
 	}
 
-	e.logger.Info("Behavior stopped. Total messages: %d", e.msgCount)
+	e.logger.Info("Behavior stopped. Messages published: %d", e.msgCount)
+	e.logger.Info("Total messages received: %d", metrics.GetReceivedCount())
 }
