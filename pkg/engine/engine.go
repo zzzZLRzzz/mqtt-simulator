@@ -19,10 +19,29 @@ import (
 )
 
 const DefaultWorkerCount = 10
+const DefaultQueueSize = 1000
 
 type ActionWithContext struct {
 	Actions []common.Action
 	Client  common.ClientContext
+}
+
+type EngineOption func(*Engine)
+
+func WithWorkerCount(count int) EngineOption {
+	return func(e *Engine) {
+		if count > 0 {
+			e.workerCount = count
+		}
+	}
+}
+
+func WithQueueSize(size int) EngineOption {
+	return func(e *Engine) {
+		if size > 0 {
+			e.queueSize = size
+		}
+	}
 }
 
 type Engine struct {
@@ -31,11 +50,13 @@ type Engine struct {
 	logger            *logging.Logger
 	behavior          behavior.Behavior
 	msgCount          int64
+	processedCount    int64
 	running           bool
 	mu                sync.Mutex
 	wg                sync.WaitGroup
 	actionQueues      []chan ActionWithContext
 	workerCount       int
+	queueSize         int
 	connectLimiter    *rate.Limiter
 	publishLimiter    *rate.Limiter
 	subscribeLimiter  *rate.Limiter
@@ -46,18 +67,24 @@ type Engine struct {
 	credGen           generator.CredentialGenerator
 }
 
-func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger) *Engine {
+func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger, opts ...EngineOption) *Engine {
 	e := &Engine{
 		config:       cfg,
 		logger:       logger,
 		behavior:     beh,
 		workerCount:  DefaultWorkerCount,
+		queueSize:    DefaultQueueSize,
 		actionQueues: make([]chan ActionWithContext, DefaultWorkerCount),
 		credGen:      generator.NewDefaultCredentialGenerator(cfg.Engine.Credentials),
 	}
 
-	for i := 0; i < DefaultWorkerCount; i++ {
-		e.actionQueues[i] = make(chan ActionWithContext, 1000)
+	for _, opt := range opts {
+		opt(e)
+	}
+
+	e.actionQueues = make([]chan ActionWithContext, e.workerCount)
+	for i := 0; i < e.workerCount; i++ {
+		e.actionQueues[i] = make(chan ActionWithContext, e.queueSize)
 	}
 
 	if cfg.Engine.EnableRateLimit {
@@ -127,10 +154,29 @@ func (e *Engine) startWorkerPool() {
 		go func(queueIdx int) {
 			defer e.wg.Done()
 			for item := range e.actionQueues[queueIdx] {
-				e.executeActions(item.Client, item.Actions)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							e.logger.Error("[worker-%d] panic recovered: %v", queueIdx, r)
+						}
+					}()
+					e.executeActions(item.Client, item.Actions)
+				}()
 			}
 		}(i)
 	}
+}
+
+func (e *Engine) ProcessedCount() int64 {
+	return atomic.LoadInt64(&e.processedCount)
+}
+
+func (e *Engine) QueueLen() int {
+	total := 0
+	for _, q := range e.actionQueues {
+		total += len(q)
+	}
+	return total
 }
 
 func (e *Engine) executeActions(ctx common.ClientContext, actions []common.Action) {
@@ -145,6 +191,7 @@ func (e *Engine) executeActions(ctx common.ClientContext, actions []common.Actio
 		case common.DisconnectAction:
 			e.executeDisconnectAction(ctx)
 		}
+		atomic.AddInt64(&e.processedCount, 1)
 	}
 }
 
