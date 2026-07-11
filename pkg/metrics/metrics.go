@@ -11,57 +11,57 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"mqtt-simulator/pkg/logging"
+	"conn-conductor/pkg/logging"
 )
 
 var (
 	ConnectionsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "mqtt_connections_total",
-			Help: "Total number of MQTT connections",
+			Name: "conn_conductor_connections_total",
+			Help: "Total number of connections",
 		},
 	)
 
 	ConnectionsActive = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "mqtt_connections_active",
-			Help: "Number of active MQTT connections",
+			Name: "conn_conductor_connections_active",
+			Help: "Number of active connections",
 		},
 	)
 
 	ConnectionsFailed = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "mqtt_connections_failed",
-			Help: "Number of failed MQTT connections",
+			Name: "conn_conductor_connections_failed",
+			Help: "Number of failed connections",
 		},
 	)
 
 	MessagesPublished = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "mqtt_messages_published",
-			Help: "Number of published MQTT messages",
+			Name: "conn_conductor_messages_published",
+			Help: "Number of published messages",
 		},
 		[]string{"topic"},
 	)
 
 	MessagesReceived = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "mqtt_messages_received",
-			Help: "Number of received MQTT messages",
+			Name: "conn_conductor_messages_received",
+			Help: "Number of received messages",
 		},
 		[]string{"topic"},
 	)
 
 	MessagesFailed = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "mqtt_messages_failed",
-			Help: "Number of failed MQTT messages",
+			Name: "conn_conductor_messages_failed",
+			Help: "Number of failed messages",
 		},
 	)
 
 	PublishLatency = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "mqtt_publish_latency_seconds",
+			Name:    "conn_conductor_publish_latency_seconds",
 			Help:    "Publish latency in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -69,7 +69,7 @@ var (
 
 	ConnectionAttempts = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "mqtt_connection_attempts",
+			Name: "conn_conductor_connection_attempts",
 			Help: "Number of connection attempts",
 		},
 	)

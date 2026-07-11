@@ -14,7 +14,7 @@ var (
 	templateCacheMu sync.Mutex
 
 	rngPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return mrand.New(mrand.NewSource(time.Now().UnixNano()))
 		},
 	}

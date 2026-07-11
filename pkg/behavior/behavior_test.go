@@ -3,26 +3,26 @@ package behavior
 import (
 	"testing"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-
-	"mqtt-simulator/pkg/common"
-	"mqtt-simulator/pkg/config"
-	"mqtt-simulator/pkg/logging"
+	act "conn-conductor/pkg/action"
+	"conn-conductor/pkg/client"
+	"conn-conductor/pkg/common"
+	"conn-conductor/pkg/config"
+	"conn-conductor/pkg/logging"
 )
 
 type mockClientContext struct {
 	clientID string
 }
 
-func (m *mockClientContext) Publish(topic string, qos byte, retain bool, payload interface{}) error {
+func (m *mockClientContext) Send(payload any, target string, metadata map[string]any) error {
 	return nil
 }
 
-func (m *mockClientContext) Subscribe(topic string, qos byte) error {
+func (m *mockClientContext) Subscribe(target string, metadata map[string]any) error {
 	return nil
 }
 
-func (m *mockClientContext) Unsubscribe(topic string) error {
+func (m *mockClientContext) Unsubscribe(target string) error {
 	return nil
 }
 
@@ -34,43 +34,41 @@ func (m *mockClientContext) IsConnected() bool {
 	return true
 }
 
-func (m *mockClientContext) ClientID() string {
+func (m *mockClientContext) ID() string {
 	return m.clientID
 }
 
+func (m *mockClientContext) Connect() error {
+	return nil
+}
+
+func (m *mockClientContext) StopReceiving() {
+}
+
+var _ client.Client = (*mockClientContext)(nil)
+
 type mockMessage struct {
-	topic   string
-	payload []byte
-}
-
-func (m *mockMessage) Duplicate() bool {
-	return false
-}
-
-func (m *mockMessage) Qos() byte {
-	return 0
-}
-
-func (m *mockMessage) Retained() bool {
-	return false
-}
-
-func (m *mockMessage) Topic() string {
-	return m.topic
+	topic    string
+	payload  []byte
+	qos      byte
+	metadata map[string]any
 }
 
 func (m *mockMessage) Payload() []byte {
 	return m.payload
 }
 
-func (m *mockMessage) Ack() {
+func (m *mockMessage) Metadata() map[string]any {
+	if m.metadata != nil {
+		return m.metadata
+	}
+	return map[string]any{
+		"topic": m.topic,
+		"qos":   m.qos,
+	}
 }
 
-func (m *mockMessage) MessageID() uint16 {
-	return 0
-}
-
-var _ mqtt.Message = (*mockMessage)(nil)
+var _ common.Message = (*mockMessage)(nil)
 
 func TestDeclarativeBehavior_OnConnect(t *testing.T) {
 	logger := logging.NewLogger(logging.LogLevelError, "test")
@@ -121,8 +119,8 @@ func TestDeclarativeBehavior_OnConnect(t *testing.T) {
 						},
 					},
 					{
-						Publish: &config.PublishActionConfig{
-							Topic:   "topic2",
+						Send: &config.SendActionConfig{
+							Target:  "topic2",
 							Payload: "hello",
 							QoS:     1,
 						},
@@ -131,15 +129,15 @@ func TestDeclarativeBehavior_OnConnect(t *testing.T) {
 			},
 			clientID:    "client1",
 			wantActions: 2,
-			wantTypes:   []string{"SubscribeAction", "PublishAction"},
+			wantTypes:   []string{"SubscribeAction", "SendAction"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewDeclarativeBehavior(tt.config, logger)
-			ctx := &mockClientContext{clientID: tt.clientID}
-			actions := b.OnConnect(ctx)
+			client := &mockClientContext{clientID: tt.clientID}
+			actions := b.OnConnect(client)
 
 			if len(actions) != tt.wantActions {
 				t.Errorf("OnConnect() got %d actions, want %d", len(actions), tt.wantActions)
@@ -148,19 +146,19 @@ func TestDeclarativeBehavior_OnConnect(t *testing.T) {
 
 			for i, action := range actions {
 				switch action.(type) {
-				case common.SubscribeAction:
+				case *act.SubscribeAction:
 					if tt.wantTypes[i] != "SubscribeAction" {
 						t.Errorf("action[%d] = SubscribeAction, want %s", i, tt.wantTypes[i])
 					}
-				case common.PublishAction:
-					if tt.wantTypes[i] != "PublishAction" {
-						t.Errorf("action[%d] = PublishAction, want %s", i, tt.wantTypes[i])
+				case *act.SendAction:
+					if tt.wantTypes[i] != "SendAction" {
+						t.Errorf("action[%d] = SendAction, want %s", i, tt.wantTypes[i])
 					}
-				case common.UnsubscribeAction:
+				case *act.UnsubscribeAction:
 					if tt.wantTypes[i] != "UnsubscribeAction" {
 						t.Errorf("action[%d] = UnsubscribeAction, want %s", i, tt.wantTypes[i])
 					}
-				case common.DisconnectAction:
+				case *act.DisconnectAction:
 					if tt.wantTypes[i] != "DisconnectAction" {
 						t.Errorf("action[%d] = DisconnectAction, want %s", i, tt.wantTypes[i])
 					}
@@ -187,8 +185,8 @@ func TestDeclarativeBehavior_OnMessage(t *testing.T) {
 				Mode: config.BehaviorModeDeclarative,
 				OnMessage: []config.BehaviorAction{
 					{
-						Publish: &config.PublishActionConfig{
-							Topic:   "response/{{.MessageTopic}}",
+						Send: &config.SendActionConfig{
+							Target:  "response/{{.MessageTopic}}",
 							Payload: "{{.MessagePayload}}",
 							QoS:     0,
 						},
@@ -206,8 +204,8 @@ func TestDeclarativeBehavior_OnMessage(t *testing.T) {
 				Mode: config.BehaviorModeDeclarative,
 				OnMessage: []config.BehaviorAction{
 					{
-						Publish: &config.PublishActionConfig{
-							Topic:   "devices/{{.ClientID}}/data",
+						Send: &config.SendActionConfig{
+							Target:  "devices/{{.ClientID}}/data",
 							Payload: "{{.MessagePayload}}",
 							QoS:     1,
 						},
@@ -224,9 +222,9 @@ func TestDeclarativeBehavior_OnMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewDeclarativeBehavior(tt.config, logger)
-			ctx := &mockClientContext{clientID: tt.clientID}
+			client := &mockClientContext{clientID: tt.clientID}
 			msg := &mockMessage{topic: tt.msgTopic, payload: []byte(tt.msgPayload)}
-			actions := b.OnMessage(ctx, msg)
+			actions := b.OnMessage(client, msg)
 
 			if len(actions) != tt.wantActions {
 				t.Errorf("OnMessage() got %d actions, want %d", len(actions), tt.wantActions)
@@ -234,10 +232,10 @@ func TestDeclarativeBehavior_OnMessage(t *testing.T) {
 			}
 
 			if len(actions) > 0 {
-				publishAction, ok := actions[0].(common.PublishAction)
+				sendAction, ok := actions[0].(*act.SendAction)
 				if ok {
-					t.Logf("PublishAction topic: %s", publishAction.Topic)
-					t.Logf("PublishAction payload: %s", publishAction.Payload)
+					t.Logf("SendAction target: %s", sendAction.Target)
+					t.Logf("SendAction payload: %s", sendAction.Payload)
 				}
 			}
 		})
@@ -260,8 +258,8 @@ func TestDeclarativeBehavior_OnTick(t *testing.T) {
 				OnTimer: []config.BehaviorAction{
 					{
 						Interval: 1,
-						Publish: &config.PublishActionConfig{
-							Topic:   "heartbeat/{{.ClientID}}",
+						Send: &config.SendActionConfig{
+							Target:  "heartbeat/{{.ClientID}}",
 							Payload: "alive",
 							QoS:     0,
 							Retain:  false,
@@ -277,8 +275,8 @@ func TestDeclarativeBehavior_OnTick(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewDeclarativeBehavior(tt.config, logger)
-			ctx := &mockClientContext{clientID: tt.clientID}
-			actions := b.OnTick(ctx, 0)
+			client := &mockClientContext{clientID: tt.clientID}
+			actions := b.OnTick(client, 0)
 
 			if len(actions) != tt.wantActions {
 				t.Errorf("OnTick() got %d actions, want %d", len(actions), tt.wantActions)
@@ -295,8 +293,8 @@ func TestDeclarativeBehavior_TemplateRendering(t *testing.T) {
 		Mode: config.BehaviorModeDeclarative,
 		OnMessage: []config.BehaviorAction{
 			{
-				Publish: &config.PublishActionConfig{
-					Topic:   "response/{{.MessageTopic}}",
+				Send: &config.SendActionConfig{
+					Target:  "response/{{.MessageTopic}}",
 					Payload: "from {{.ClientID}}: {{.MessagePayload}}",
 					QoS:     0,
 				},
@@ -304,27 +302,27 @@ func TestDeclarativeBehavior_TemplateRendering(t *testing.T) {
 		},
 	}, logger)
 
-	ctx := &mockClientContext{clientID: "my-client"}
+	client := &mockClientContext{clientID: "my-client"}
 	msg := &mockMessage{topic: "test/topic", payload: []byte("hello")}
 
-	actions := b.OnMessage(ctx, msg)
+	actions := b.OnMessage(client, msg)
 	if len(actions) != 1 {
 		t.Fatalf("expected 1 action, got %d", len(actions))
 	}
 
-	publishAction, ok := actions[0].(common.PublishAction)
+	sendAction, ok := actions[0].(*act.SendAction)
 	if !ok {
-		t.Fatalf("expected PublishAction, got %T", actions[0])
+		t.Fatalf("expected SendAction, got %T", actions[0])
 	}
 
-	expectedTopic := "response/test/topic"
-	if publishAction.Topic != expectedTopic {
-		t.Errorf("topic = %s, want %s", publishAction.Topic, expectedTopic)
+	expectedTarget := "response/test/topic"
+	if sendAction.Target != expectedTarget {
+		t.Errorf("target = %s, want %s", sendAction.Target, expectedTarget)
 	}
 
 	expectedPayload := "from my-client: hello"
-	if publishAction.Payload != expectedPayload {
-		t.Errorf("payload = %s, want %s", publishAction.Payload, expectedPayload)
+	if sendAction.Payload != expectedPayload {
+		t.Errorf("payload = %s, want %s", sendAction.Payload, expectedPayload)
 	}
 }
 
@@ -340,14 +338,14 @@ func TestDeclarativeBehavior_Unsubscribe(t *testing.T) {
 		},
 	}, logger)
 
-	ctx := &mockClientContext{clientID: "client1"}
-	actions := b.OnConnect(ctx)
+	client := &mockClientContext{clientID: "client1"}
+	actions := b.OnConnect(client)
 
 	if len(actions) != 1 {
 		t.Fatalf("expected 1 action, got %d", len(actions))
 	}
 
-	if _, ok := actions[0].(common.UnsubscribeAction); !ok {
+	if _, ok := actions[0].(*act.UnsubscribeAction); !ok {
 		t.Errorf("expected UnsubscribeAction, got %T", actions[0])
 	}
 }
@@ -364,15 +362,15 @@ func TestDeclarativeBehavior_Disconnect(t *testing.T) {
 		},
 	}, logger)
 
-	ctx := &mockClientContext{clientID: "client1"}
+	client := &mockClientContext{clientID: "client1"}
 	msg := &mockMessage{topic: "cmd/disconnect", payload: []byte("")}
-	actions := b.OnMessage(ctx, msg)
+	actions := b.OnMessage(client, msg)
 
 	if len(actions) != 1 {
 		t.Fatalf("expected 1 action, got %d", len(actions))
 	}
 
-	if _, ok := actions[0].(common.DisconnectAction); !ok {
+	if _, ok := actions[0].(*act.DisconnectAction); !ok {
 		t.Errorf("expected DisconnectAction, got %T", actions[0])
 	}
 }

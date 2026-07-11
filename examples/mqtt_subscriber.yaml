@@ -1,0 +1,33 @@
+log_level: info
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  broker:
+    address: tcp://broker.emqx.io:1883
+    keepalive: 60
+    timeout: 30s
+  credentials:
+    client_id_prefix: "subscriber-"
+    username_prefix: "username-"
+    password_prefix: "password-"
+  connections: 2
+  enable_rate_limit: true
+  rate_limits:
+    connect:
+      rate: 10
+      burst: 20
+    subscribe:
+      rate: 10
+      burst: 20
+    send:
+      rate: 100
+      burst: 200
+    disconnect:
+      rate: 10
+      burst: 20
+behavior:
+  on_connect:
+    - subscribe:
+        topic: "devices/+/zlr"
+        qos: 1

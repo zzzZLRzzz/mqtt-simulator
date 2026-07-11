@@ -3,7 +3,7 @@ package generator
 import (
 	"fmt"
 
-	"mqtt-simulator/pkg/config"
+	"conn-conductor/pkg/config"
 )
 
 type CredentialGenerator interface {

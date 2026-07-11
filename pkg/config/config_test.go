@@ -54,8 +54,8 @@ engine:
   connections: 1
 behavior:
   on_timer:
-    - publish:
-        topic: "test"
+    - send:
+        target: "test"
         payload: "hello"
         qos: 0
 `,
@@ -116,7 +116,7 @@ engine:
   connections: 1
 behavior:
   on_timer:
-    - publish:
+    - send:
         payload: "hello"
         qos: 0
 `,

@@ -1,23 +1,24 @@
-# MQTT Simulator
+# Conn-Conductor
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A configurable MQTT client simulator for testing and benchmarking MQTT brokers.
+A configurable connection conductor for managing and simulating long-lived connections (MQTT, XMPP, etc.).
 
 ## Features
 
+- **Protocol Agnostic**: Supports multiple protocols via plugin architecture
 - **Declarative Behavior**: Define client behavior through YAML configuration
 - **Custom Behavior**: Implement custom behavior via the `Behavior` interface
-- **Rate Limiting**: Configurable rate limits for connect, subscribe, publish, and disconnect operations
+- **Rate Limiting**: Configurable rate limits for connect, subscribe, send, and disconnect operations
 - **Metrics**: Built-in Prometheus metrics for monitoring
-- **Template Support**: Go template support for dynamic topic and payload generation
+- **Template Support**: Go template support for dynamic target and payload generation
 - **Connection Pooling**: Efficient connection management with automatic reconnection
 
 ## Use Cases
 
 - **Broker stress testing**: Simulate thousands of publishers/subscribers
 - **Protocol development**: Implement custom behavior for USP/TR-369, LwM2M, etc.
-- **Integration testing**: Verify your IoT platform handles real MQTT traffic
+- **Integration testing**: Verify your IoT platform handles real traffic
 - **Benchmarking**: Measure broker throughput and latency
 
 ## Getting Started
@@ -29,18 +30,18 @@ A configurable MQTT client simulator for testing and benchmarking MQTT brokers.
 ### Installation
 
 ```bash
-go build -o mqtt-simulator ./cmd/mqtt-simulator
+go build -o conn-conductor ./cmd/conn-conductor
 ```
 
 ### Running
 
 ```bash
-./mqtt-simulator --config examples/publisher.yaml
+./conn-conductor --config examples/mqtt_publisher.yaml
 ```
 
 ## Configuration
 
-### Example: Publisher
+### Example: MQTT Publisher
 
 ```yaml
 log_level: info
@@ -57,14 +58,14 @@ engine:
   connections: 3
   enable_rate_limit: true
   rate_limits:
-    publish:
+    send:
       rate: 100
       burst: 200
 behavior:
   on_timer:
     - interval: 5
-      publish:
-        topic: "devices/{{.ClientID}}/data"
+      send:
+        target: "devices/{{.ClientID}}/data"
         payload: |
           {
             "temperature": {{RandomFloat 20.0 45.0}},
@@ -72,9 +73,10 @@ behavior:
             "timestamp": {{NowUnix}}
           }
         qos: 1
+        retain: false
 ```
 
-### Example: Subscriber
+### Example: MQTT Subscriber
 
 ```yaml
 log_level: debug
@@ -92,25 +94,9 @@ engine:
 behavior:
   on_connect:
     - subscribe:
-        topic: "devices/+/data"
+        target: "devices/+/data"
         qos: 1
 ```
-
-### Example: Custom Mode (USP/TR-369)
-
-```yaml
-log_level: debug
-engine:
-  broker:
-    address: tcp://localhost:1883
-  credentials:
-    client_id: "device-001"
-  connections: 1
-behavior:
-  mode: custom
-```
-
-When `mode: custom` is set, the simulator uses the built-in `USPBehavior`. This is a placeholder implementation for USP/TR-369 protocol behavior. Currently, `OnConnect` returns no actions. For production use, implement your own custom behavior.
 
 ## Behavior Configuration
 
@@ -118,9 +104,9 @@ When `mode: custom` is set, the simulator uses the built-in `USPBehavior`. This 
 
 | Action | Description |
 |--------|-------------|
-| `subscribe` | Subscribe to a topic |
-| `publish` | Publish a message |
-| `unsubscribe` | Unsubscribe from a topic |
+| `subscribe` | Subscribe to a target |
+| `send` | Send a message to a target |
+| `unsubscribe` | Unsubscribe from a target |
 | `disconnect` | Disconnect the client |
 
 ### Template Functions
@@ -141,25 +127,24 @@ type MyCustomBehavior struct {
     logger *logging.Logger
 }
 
-func (b *MyCustomBehavior) OnConnect(ctx common.ClientContext) []common.Action {
-    // Actions to perform on connect
-    return []common.Action{
-        common.SubscribeAction{Topic: "my/topic", QoS: 1},
+func (b *MyCustomBehavior) OnConnect(client client.Client) []action.Action {
+    return []action.Action{
+        &action.SubscribeAction{
+            Target:   "my/topic",
+            Metadata: map[string]any{"qos": byte(1)},
+        },
     }
 }
 
-func (b *MyCustomBehavior) OnMessage(ctx common.ClientContext, msg mqtt.Message) []common.Action {
-    // Actions to perform when a message is received
+func (b *MyCustomBehavior) OnMessage(client client.Client, msg common.Message) []action.Action {
     return nil
 }
 
-func (b *MyCustomBehavior) OnTick(ctx common.ClientContext, tick int64) []common.Action {
-    // Actions to perform on each tick (every second)
+func (b *MyCustomBehavior) OnTick(client client.Client, tick int64) []action.Action {
     return nil
 }
 
-func (b *MyCustomBehavior) OnDisconnect(ctx common.ClientContext) {
-    // Cleanup on disconnect
+func (b *MyCustomBehavior) OnDisconnect(client client.Client) {
 }
 ```
 
@@ -180,20 +165,27 @@ Access metrics at `http://localhost:9090/metrics`:
 ## Project Structure
 
 ```
-mqtt-simulator/
-├── cmd/mqtt-simulator/     # Main entry point
+conn-conductor/
+├── cmd/conn-conductor/     # Main entry point
 ├── pkg/
+│   ├── action/             # Action definitions
+│   │   ├── action.go       # Generic action interfaces
+│   │   └── mqtt/           # MQTT-specific metadata
+│   │       └── metadata.go # MQTT publish/subscribe metadata
 │   ├── behavior/           # Behavior implementations
-│   │   ├── declarative.go  # Declarative behavior (YAML-driven)
-│   │   ├── usp.go          # custom USP/TR-369 behavior
-│   │   └── behavior.go     # Package entry
-│   ├── common/             # Common interfaces
-│   │   └── interfaces.go   # Action types and ClientContext interface
+│   │   ├── behavior.go     # Behavior interface
+│   │   ├── mqtt_declarative.go # MQTT declarative behavior
+│   │   └── usp.go          # Custom USP/TR-369 behavior
+│   ├── client/             # Client interfaces
+│   │   ├── client.go       # Generic Client interface
+│   │   └── mqtt/           # MQTT client implementation
+│   │       └── client.go   # MQTT client wrapper
+│   ├── common/             # Common types
+│   │   └── message.go      # Message interface
 │   ├── config/             # Configuration handling
 │   │   ├── config.go       # Config structs
 │   │   └── template.go     # Template functions
-│   ├── connector/          # MQTT connection management
-│   │   ├── client.go       # MQTT client implementation
+│   ├── connector/          # Connection management
 │   │   └── pool.go         # Connection pool
 │   ├── engine/             # Core engine
 │   │   └── engine.go       # Engine implementation
@@ -204,8 +196,8 @@ mqtt-simulator/
 │   └── metrics/            # Prometheus metrics
 │       └── metrics.go      # Metrics server
 └── examples/               # Example configurations
-    ├── publisher.yaml
-    ├── subscriber.yaml
+    ├── mqtt_publisher.yaml
+    ├── mqtt_subscriber.yaml
     └── device.yaml
 ```
 
@@ -217,24 +209,24 @@ mqtt-simulator/
 │ ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────┐ │
 │ │ Worker Pool      │  │ Global Ticker    │  │ Rate Limiters   │ │
 │ │ (10 Workers)     │  │ (1 sec interval) │  │ Connect/Sub     │ │
-│ │ (channel per     │  │                  │  │ Pub/Disconn     │ │
+│ │ (channel per     │  │                  │  │ Send/Disconn    │ │
 │ │   worker)        │  │                  │  │                 │ │
 │ └────────┬─────────┘  └────────┬─────────┘  └────────┬────────┘ │
 │          │                     │                     │          │
 │ ┌────────▼─────────────────────▼─────────────────────▼────────┐ │
-│ │ Action Queue (sharded by ClientID hash)                     │ │
+│ │ Action Queue (sharded by Client ID hash)                     │ │
 │ └─────────────────────────────┬───────────────────────────────┘ │
 └───────────────────────────────┼─────────────────────────────────┘
                                 │ SubmitActions()
 ┌───────────────────────────────▼─────────────────────────────────┐
-│ MQTTClient (per connection)                                     │
+│ Client (per connection)                                         │
 │ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ ClientContext Interface                                     │ │
-│ │ - Publish / Subscribe / Unsubscribe / Disconnect             │ │
-│ │ - IsConnected / ClientID                                     │ │
+│ │ Client Interface                                             │ │
+│ │ - Send / Subscribe / Unsubscribe / Disconnect               │ │
+│ │ - IsConnected / ID                                           │ │
 │ └──────────────────────────────────────────────────────────────┘ │
 │ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ paho.mqtt.golang (underlying MQTT client)                   │ │
+│ │ Protocol Adapter (e.g., paho.mqtt.golang)                   │ │
 │ └──────────────────────────────────────────────────────────────┘ │
 │ ┌──────────────────────────────────────────────────────────────┐ │
 │ │ Event Handlers → Behavior callbacks                          │ │
@@ -253,7 +245,7 @@ mqtt-simulator/
 │             │                               │                  │
 │ ┌───────────▼───────────────────────────────▼────────────────┐ │
 │ │ OnConnect / OnMessage / OnTick / OnDisconnect              │ │
-│ │ Returns []Action (Publish/Subscribe/Unsubscribe/Disconnect)│ │
+│ │ Returns []Action (Send/Subscribe/Unsubscribe/Disconnect)   │ │
 │ └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -264,11 +256,12 @@ mqtt-simulator/
 |-----------|-------------|
 | **Engine** | Core orchestrator that manages workers, rate limiting, and global timer |
 | **Worker Pool** | 10 concurrent workers that dequeue and execute actions from sharded queues |
-| **Action Queue** | Sharded by ClientID hash to ensure sequential execution per client |
+| **Action Queue** | Sharded by Client ID hash to ensure sequential execution per client |
 | **Global Ticker** | Broadcasts tick events to all clients every 1 second |
-| **Rate Limiters** | Token bucket rate limiters for connect, subscribe, publish, and disconnect |
-| **MQTTClient** | Wrapper around paho.mqtt.golang with reconnect logic and event handlers |
+| **Rate Limiters** | Token bucket rate limiters for connect, subscribe, send, and disconnect |
+| **Client** | Protocol-agnostic client interface with adapter implementations |
 | **Behavior** | Interface defining client behavior (OnConnect, OnMessage, OnTick, OnDisconnect) |
+| **Action** | Protocol-agnostic action definitions (Send/Subscribe/Unsubscribe/Disconnect). Protocol-specific parameters are carried via `Metadata` map and interpreted by each client implementation. |
 
 ## Data Flow
 
@@ -283,31 +276,39 @@ GlobalTicker fires every 1 second
         Behavior.OnTick(client, tick) → returns []Action
         Engine.SubmitActions(client, actions)
             ↓
-        Action goes to sharded queue (hash by ClientID)
+        Action goes to sharded queue (hash by Client ID)
             ↓
         Worker dequeues action
             ↓
         Engine.executeActions() → dispatches to specific handler
             ↓
-        executePublishAction() / executeSubscribeAction() etc.
+        act.Execute(client) → Send/Subscribe etc.
             ↓
-        MQTTClient.Publish() / MQTTClient.Subscribe() etc.
+        Client.Send() / Client.Subscribe() etc.
             ↓
-        paho.mqtt.golang publishes/subscribes to broker
+        Protocol adapter publishes/subscribes to broker
 ```
 
 ### Message-Driven Actions
 
 ```
-MQTT broker publishes message
+Broker publishes message
         ↓
-    MQTTClient.DefaultPublishHandler receives message
+    Client receives message via protocol adapter
         ↓
     Behavior.OnMessage(client, msg) → returns []Action
         ↓
-    actionHandler() → Engine.SubmitActions()
+    Engine.SubmitActions(client, actions)
         ↓
     Action goes to sharded queue
         ↓
     Worker executes action (same as above)
 ```
+
+## Protocol Support
+
+| Protocol | Status | Notes |
+|----------|--------|-------|
+| MQTT | ✅ Supported | Using Eclipse Paho |
+| XMPP | 🔜 Planned | - |
+| WebSocket | 🔜 Planned | - |

@@ -9,21 +9,22 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"mqtt-simulator/pkg/behavior"
-	"mqtt-simulator/pkg/common"
-	"mqtt-simulator/pkg/config"
-	"mqtt-simulator/pkg/connector"
-	"mqtt-simulator/pkg/generator"
-	"mqtt-simulator/pkg/logging"
-	"mqtt-simulator/pkg/metrics"
+	"conn-conductor/pkg/action"
+	"conn-conductor/pkg/behavior"
+	"conn-conductor/pkg/client"
+	"conn-conductor/pkg/config"
+	"conn-conductor/pkg/connector"
+	"conn-conductor/pkg/generator"
+	"conn-conductor/pkg/logging"
+	"conn-conductor/pkg/metrics"
 )
 
 const DefaultWorkerCount = 10
 const DefaultQueueSize = 1000
 
 type ActionWithContext struct {
-	Actions []common.Action
-	Client  common.ClientContext
+	Actions []action.Action
+	Client  client.Client
 }
 
 type EngineOption func(*Engine)
@@ -44,6 +45,12 @@ func WithQueueSize(size int) EngineOption {
 	}
 }
 
+func WithConnectorFactory(factory connector.ConnectorFactory) EngineOption {
+	return func(e *Engine) {
+		e.connectorFactory = factory
+	}
+}
+
 type Engine struct {
 	config            config.Config
 	pool              *connector.ConnectionPool
@@ -58,13 +65,14 @@ type Engine struct {
 	workerCount       int
 	queueSize         int
 	connectLimiter    *rate.Limiter
-	publishLimiter    *rate.Limiter
+	sendLimiter       *rate.Limiter
 	subscribeLimiter  *rate.Limiter
 	disconnectLimiter *rate.Limiter
 	globalTicker      *time.Ticker
 	globalTick        int64
 	stopChan          chan struct{}
 	credGen           generator.CredentialGenerator
+	connectorFactory  connector.ConnectorFactory
 }
 
 func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger, opts ...EngineOption) *Engine {
@@ -82,52 +90,56 @@ func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger,
 		opt(e)
 	}
 
+	if e.connectorFactory == nil {
+		e.connectorFactory = connector.NewMQTTConnectorFactory(logger, cfg.Engine.Broker)
+	}
+
 	e.actionQueues = make([]chan ActionWithContext, e.workerCount)
 	for i := 0; i < e.workerCount; i++ {
 		e.actionQueues[i] = make(chan ActionWithContext, e.queueSize)
 	}
 
-	if cfg.Engine.EnableRateLimit {
-		rateLimits := cfg.Engine.RateLimits
-
-		if rateLimits.Connect.Rate > 0 {
-			burst := rateLimits.Connect.Burst
-			if burst <= 0 {
-				burst = rateLimits.Connect.Rate
-			}
-			e.connectLimiter = rate.NewLimiter(rate.Limit(rateLimits.Connect.Rate), burst)
-			logger.Info("Connect limiter created: rate=%d, burst=%d", rateLimits.Connect.Rate, burst)
-		}
-
-		if rateLimits.Subscribe.Rate > 0 {
-			burst := rateLimits.Subscribe.Burst
-			if burst <= 0 {
-				burst = 1
-			}
-			e.subscribeLimiter = rate.NewLimiter(rate.Limit(rateLimits.Subscribe.Rate), burst)
-			logger.Info("Subscribe limiter created: rate=%d, burst=%d", rateLimits.Subscribe.Rate, burst)
-		}
-
-		if rateLimits.Publish.Rate > 0 {
-			burst := rateLimits.Publish.Burst
-			if burst <= 0 {
-				burst = rateLimits.Publish.Rate
-			}
-			e.publishLimiter = rate.NewLimiter(rate.Limit(rateLimits.Publish.Rate), burst)
-			logger.Info("Publish limiter created: rate=%d, burst=%d", rateLimits.Publish.Rate, burst)
-		}
-
-		if rateLimits.Disconnect.Rate > 0 {
-			burst := rateLimits.Disconnect.Burst
-			if burst <= 0 {
-				burst = rateLimits.Disconnect.Rate
-			}
-			e.disconnectLimiter = rate.NewLimiter(rate.Limit(rateLimits.Disconnect.Rate), burst)
-			logger.Info("Disconnect limiter created: rate=%d, burst=%d", rateLimits.Disconnect.Rate, burst)
-		}
-	}
+	e.initRateLimiters(cfg.Engine.RateLimits, logger)
 
 	return e
+}
+
+func (e *Engine) initRateLimiters(rateLimits config.RateLimitsConfig, logger *logging.Logger) {
+	if rateLimits.Connect.Rate > 0 {
+		burst := rateLimits.Connect.Burst
+		if burst <= 0 {
+			burst = rateLimits.Connect.Rate
+		}
+		e.connectLimiter = rate.NewLimiter(rate.Limit(rateLimits.Connect.Rate), burst)
+		logger.Info("Connect limiter created: rate=%d, burst=%d", rateLimits.Connect.Rate, burst)
+	}
+
+	if rateLimits.Subscribe.Rate > 0 {
+		burst := rateLimits.Subscribe.Burst
+		if burst <= 0 {
+			burst = 1
+		}
+		e.subscribeLimiter = rate.NewLimiter(rate.Limit(rateLimits.Subscribe.Rate), burst)
+		logger.Info("Subscribe limiter created: rate=%d, burst=%d", rateLimits.Subscribe.Rate, burst)
+	}
+
+	if rateLimits.Send.Rate > 0 {
+		burst := rateLimits.Send.Burst
+		if burst <= 0 {
+			burst = rateLimits.Send.Rate
+		}
+		e.sendLimiter = rate.NewLimiter(rate.Limit(rateLimits.Send.Rate), burst)
+		logger.Info("Send limiter created: rate=%d, burst=%d", rateLimits.Send.Rate, burst)
+	}
+
+	if rateLimits.Disconnect.Rate > 0 {
+		burst := rateLimits.Disconnect.Burst
+		if burst <= 0 {
+			burst = rateLimits.Disconnect.Rate
+		}
+		e.disconnectLimiter = rate.NewLimiter(rate.Limit(rateLimits.Disconnect.Rate), burst)
+		logger.Info("Disconnect limiter created: rate=%d, burst=%d", rateLimits.Disconnect.Rate, burst)
+	}
 }
 
 func (e *Engine) queueIndex(clientID string) int {
@@ -136,15 +148,15 @@ func (e *Engine) queueIndex(clientID string) int {
 	return int(h.Sum32()) % e.workerCount
 }
 
-func (e *Engine) SubmitActions(ctx common.ClientContext, actions []common.Action) {
+func (e *Engine) SubmitActions(client client.Client, actions []action.Action) {
 	if len(actions) == 0 {
 		return
 	}
-	queueIdx := e.queueIndex(ctx.ClientID())
+	queueIdx := e.queueIndex(client.ID())
 	select {
-	case e.actionQueues[queueIdx] <- ActionWithContext{Actions: actions, Client: ctx}:
+	case e.actionQueues[queueIdx] <- ActionWithContext{Actions: actions, Client: client}:
 	default:
-		e.logger.Warn("[%s] action queue full, dropping %d actions", ctx.ClientID(), len(actions))
+		e.logger.Warn("[%s] action queue full, dropping %d actions", client.ID(), len(actions))
 	}
 }
 
@@ -179,90 +191,53 @@ func (e *Engine) QueueLen() int {
 	return total
 }
 
-func (e *Engine) executeActions(ctx common.ClientContext, actions []common.Action) {
+func (e *Engine) executeActions(client client.Client, actions []action.Action) {
 	for _, action := range actions {
-		switch a := action.(type) {
-		case common.PublishAction:
-			e.executePublishAction(ctx, a)
-		case common.SubscribeAction:
-			e.executeSubscribeAction(ctx, a)
-		case common.UnsubscribeAction:
-			e.executeUnsubscribeAction(ctx, a)
-		case common.DisconnectAction:
-			e.executeDisconnectAction(ctx)
-		}
+		e.executeAction(client, action)
 		atomic.AddInt64(&e.processedCount, 1)
 	}
 }
 
-func (e *Engine) executePublishAction(ctx common.ClientContext, action common.PublishAction) {
-	if e.publishLimiter != nil {
-		if err := e.publishLimiter.Wait(context.Background()); err != nil {
-			e.logger.Error("[%s] publish rate limit error: %v", ctx.ClientID(), err)
-			return
+func (e *Engine) executeAction(client client.Client, act action.Action) {
+	switch act.(type) {
+	case *action.SendAction:
+		if e.sendLimiter != nil {
+			if err := e.sendLimiter.Wait(context.Background()); err != nil {
+				e.logger.Error("[%s] send rate limit error: %v", client.ID(), err)
+				return
+			}
+		}
+	case *action.SubscribeAction:
+		if e.subscribeLimiter != nil {
+			if err := e.subscribeLimiter.Wait(context.Background()); err != nil {
+				e.logger.Error("[%s] subscribe rate limit error: %v", client.ID(), err)
+				return
+			}
+		}
+	case *action.DisconnectAction:
+		if e.disconnectLimiter != nil {
+			if err := e.disconnectLimiter.Wait(context.Background()); err != nil {
+				e.logger.Error("[%s] disconnect rate limit error: %v", client.ID(), err)
+				return
+			}
 		}
 	}
 
 	start := time.Now()
-	err := ctx.Publish(action.Topic, action.QoS, action.Retain, action.Payload)
+	err := act.Execute(client)
 	latency := time.Since(start)
 
 	if err != nil {
-		e.logger.Error("[%s] failed to publish: %v", ctx.ClientID(), err)
+		e.logger.Error("[%s] action failed: %v", client.ID(), err)
 		metrics.MessagesFailed.Inc()
 		return
 	}
 
-	atomic.AddInt64(&e.msgCount, 1)
-	metrics.MessagesPublished.WithLabelValues(action.Topic).Inc()
-	metrics.PublishLatency.Observe(latency.Seconds())
-
-	if e.logger.IsDebug() {
-		var payloadStr string
-		switch v := action.Payload.(type) {
-		case []byte:
-			payloadStr = string(v)
-		case string:
-			payloadStr = v
-		default:
-			payloadStr = "<binary>"
-		}
-		e.logger.Debug("[%s] published to %s: %s", ctx.ClientID(), action.Topic, payloadStr)
-	} else if e.logger.IsInfo() {
-		e.logger.Info("[%s] published to %s", ctx.ClientID(), action.Topic)
+	if sa, ok := act.(*action.SendAction); ok {
+		atomic.AddInt64(&e.msgCount, 1)
+		metrics.MessagesPublished.WithLabelValues(sa.Target).Inc()
+		metrics.PublishLatency.Observe(latency.Seconds())
 	}
-}
-
-func (e *Engine) executeSubscribeAction(ctx common.ClientContext, action common.SubscribeAction) {
-	if e.subscribeLimiter != nil {
-		if err := e.subscribeLimiter.Wait(context.Background()); err != nil {
-			e.logger.Error("[%s] subscribe rate limit error: %v", ctx.ClientID(), err)
-			return
-		}
-	}
-
-	if err := ctx.Subscribe(action.Topic, action.QoS); err != nil {
-		e.logger.Error("[%s] failed to subscribe to %s: %v", ctx.ClientID(), action.Topic, err)
-	}
-}
-
-func (e *Engine) executeUnsubscribeAction(ctx common.ClientContext, action common.UnsubscribeAction) {
-	if err := ctx.Unsubscribe(action.Topic); err != nil {
-		e.logger.Error("[%s] failed to unsubscribe from %s: %v", ctx.ClientID(), action.Topic, err)
-	}
-}
-
-func (e *Engine) executeDisconnectAction(ctx common.ClientContext) {
-	if e.disconnectLimiter != nil {
-		if err := e.disconnectLimiter.Wait(context.Background()); err != nil {
-			e.logger.Error("[%s] disconnect rate limit error: %v", ctx.ClientID(), err)
-			return
-		}
-	}
-	if err := ctx.Disconnect(); err != nil {
-		e.logger.Error("[%s] failed to disconnect: %v", ctx.ClientID(), err)
-	}
-	e.behavior.OnDisconnect(ctx)
 }
 
 func (e *Engine) connectAll() {
@@ -287,7 +262,12 @@ func (e *Engine) connectAll() {
 				Password: e.credGen.GeneratePassword(index),
 			}
 
-			client := connector.NewMQTTClient(e.logger, e.config.Engine.Broker, index, creds, e.behavior, e.handleAction)
+			if e.connectorFactory == nil {
+				e.logger.Error("[client-%d] connector factory is nil", index)
+				return
+			}
+
+			client := e.connectorFactory.CreateClient(index, creds, e.behavior, e.handleAction)
 			if err := client.Connect(); err != nil {
 				e.logger.Error("[%s] connect failed: %v", creds.ClientID, err)
 				metrics.IncConnectionFailed()
@@ -308,8 +288,8 @@ func (e *Engine) connectAll() {
 	e.logger.Info("ConnectAll completed: %d/%d clients", e.pool.Count(), connectionCount)
 }
 
-func (e *Engine) handleAction(ctx common.ClientContext, actions []common.Action) {
-	e.SubmitActions(ctx, actions)
+func (e *Engine) handleAction(client client.Client, actions []action.Action) {
+	e.SubmitActions(client, actions)
 }
 
 func (e *Engine) startGlobalTicker() {
@@ -336,14 +316,14 @@ func (e *Engine) broadcastTimerTick(tick int64) {
 		return
 	}
 	clients := e.pool.All()
-	for _, client := range clients {
-		if !client.IsConnected() {
+	for _, c := range clients {
+		if !c.IsConnected() {
 			continue
 		}
-		go func(c common.ClientContext) {
-			actions := e.behavior.OnTick(c, tick)
-			e.SubmitActions(c, actions)
-		}(client)
+		go func(cl client.Client) {
+			actions := e.behavior.OnTick(cl, tick)
+			e.SubmitActions(cl, actions)
+		}(c)
 	}
 }
 

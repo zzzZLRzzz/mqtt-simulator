@@ -1,14 +1,12 @@
 package behavior
 
 import (
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-
-	"mqtt-simulator/pkg/common"
-	"mqtt-simulator/pkg/logging"
+	act "conn-conductor/pkg/action"
+	"conn-conductor/pkg/client"
+	"conn-conductor/pkg/common"
+	"conn-conductor/pkg/logging"
 )
 
-// USPBehavior implements USP/TR-369 protocol behavior
-// TODO: Complete USP protocol implementation
 type USPBehavior struct {
 	logger *logging.Logger
 }
@@ -19,14 +17,19 @@ func NewUSPBehavior(logger *logging.Logger) *USPBehavior {
 	}
 }
 
-func (b *USPBehavior) OnConnect(ctx common.ClientContext) []common.Action {
+func (b *USPBehavior) OnConnect(client client.Client) []act.Action {
 	return nil
 }
 
-func (b *USPBehavior) OnMessage(ctx common.ClientContext, msg mqtt.Message) []common.Action {
-	topic := msg.Topic()
+func (b *USPBehavior) OnMessage(client client.Client, msg common.Message) []act.Action {
 	payload := string(msg.Payload())
-	clientID := ctx.ClientID()
+	clientID := client.ID()
+
+	metadata := msg.Metadata()
+	topic := ""
+	if t, ok := metadata["topic"].(string); ok {
+		topic = t
+	}
 
 	if b.logger.IsInfo() {
 		b.logger.Info("[%s] received USP message from %s", clientID, topic)
@@ -35,20 +38,14 @@ func (b *USPBehavior) OnMessage(ctx common.ClientContext, msg mqtt.Message) []co
 		b.logger.Debug("[%s] received USP message from %s: %s", clientID, topic, payload)
 	}
 
-	// TODO: Handle USP messages
-	// Parse incoming USP messages and generate appropriate responses
 	return nil
 }
 
-func (b *USPBehavior) OnTick(ctx common.ClientContext, tick int64) []common.Action {
-	// TODO: Implement periodic USP operations
-	// - Send periodic heartbeat
-	// - Check for pending operations
+func (b *USPBehavior) OnTick(client client.Client, tick int64) []act.Action {
 	return nil
 }
 
-func (b *USPBehavior) OnDisconnect(ctx common.ClientContext) {
-	// TODO: Clean up USP state on disconnect
+func (b *USPBehavior) OnDisconnect(client client.Client) {
 }
 
 var _ Behavior = (*USPBehavior)(nil)

@@ -1,4 +1,4 @@
-module mqtt-simulator
+module conn-conductor
 
 go 1.25.5
 

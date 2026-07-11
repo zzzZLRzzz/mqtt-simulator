@@ -8,9 +8,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"mqtt-simulator/pkg/common"
-	"mqtt-simulator/pkg/config"
-	"mqtt-simulator/pkg/logging"
+	act "conn-conductor/pkg/action"
+	"conn-conductor/pkg/client"
+	"conn-conductor/pkg/config"
+	"conn-conductor/pkg/logging"
 )
 
 type MockMQTTClient struct {
@@ -21,19 +22,19 @@ type MockMQTTClient struct {
 	subscribeCount  int
 	disconnectCount int
 	lastTopic       string
-	lastPayload     interface{}
+	lastPayload     any
 	mu              sync.Mutex
 	callOrder       []string
 	connected       bool
 }
 
-func (m *MockMQTTClient) Publish(topic string, qos byte, retain bool, payload interface{}) error {
+func (m *MockMQTTClient) Send(payload any, target string, metadata map[string]any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.callOrder = append(m.callOrder, "publish:"+topic)
+	m.callOrder = append(m.callOrder, "send:"+target)
 	m.publishCount++
-	m.lastTopic = topic
+	m.lastTopic = target
 	m.lastPayload = payload
 
 	if m.publishDelay > 0 {
@@ -47,16 +48,16 @@ func (m *MockMQTTClient) Publish(topic string, qos byte, retain bool, payload in
 	return nil
 }
 
-func (m *MockMQTTClient) Subscribe(topic string, qos byte) error {
+func (m *MockMQTTClient) Subscribe(target string, metadata map[string]any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.callOrder = append(m.callOrder, "subscribe:"+topic)
+	m.callOrder = append(m.callOrder, "subscribe:"+target)
 	m.subscribeCount++
 	return nil
 }
 
-func (m *MockMQTTClient) Unsubscribe(topic string) error {
+func (m *MockMQTTClient) Unsubscribe(target string) error {
 	return nil
 }
 
@@ -75,8 +76,18 @@ func (m *MockMQTTClient) IsConnected() bool {
 	return m.connected
 }
 
-func (m *MockMQTTClient) ClientID() string {
+func (m *MockMQTTClient) ID() string {
 	return m.clientID
+}
+
+func (m *MockMQTTClient) Connect() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.connected = true
+	return nil
+}
+
+func (m *MockMQTTClient) StopReceiving() {
 }
 
 func (m *MockMQTTClient) GetPublishCount() int {
@@ -90,6 +101,8 @@ func (m *MockMQTTClient) GetCallOrder() []string {
 	defer m.mu.Unlock()
 	return append([]string{}, m.callOrder...)
 }
+
+var _ client.Client = (*MockMQTTClient)(nil)
 
 func newTestEngine(opts ...EngineOption) *Engine {
 	cfg := config.Config{
@@ -132,12 +145,11 @@ func TestEngine_SubmitActions_ConcurrentSafety(t *testing.T) {
 			}
 
 			for j := 0; j < actionsPerClient; j++ {
-				actions := []common.Action{
-					common.PublishAction{
-						Topic:   "test/topic",
-						QoS:     0,
-						Retain:  false,
-						Payload: "payload",
+				actions := []act.Action{
+					&act.SendAction{
+						Target:   "test/topic",
+						Payload:  "payload",
+						Metadata: map[string]any{"qos": byte(0), "retain": false},
 					},
 				}
 				e.SubmitActions(client, actions)
@@ -171,12 +183,11 @@ func TestEngine_QueueDropping(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < totalActions; i++ {
-			actions := []common.Action{
-				common.PublishAction{
-					Topic:   "test/topic",
-					QoS:     0,
-					Retain:  false,
-					Payload: "payload",
+			actions := []act.Action{
+				&act.SendAction{
+					Target:   "test/topic",
+					Payload:  "payload",
+					Metadata: map[string]any{"qos": byte(0), "retain": false},
 				},
 			}
 			e.SubmitActions(client, actions)
@@ -219,13 +230,13 @@ func TestEngine_SlowActionIsolation(t *testing.T) {
 		}
 	}
 
-	e.SubmitActions(slowClient, []common.Action{
-		common.PublishAction{Topic: "slow/topic", QoS: 0, Retain: false, Payload: "slow"},
+	e.SubmitActions(slowClient, []act.Action{
+		&act.SendAction{Target: "slow/topic", Payload: "slow", Metadata: map[string]any{"qos": byte(0), "retain": false}},
 	})
 
 	for _, fc := range fastClients {
-		e.SubmitActions(fc, []common.Action{
-			common.PublishAction{Topic: "fast/topic", QoS: 0, Retain: false, Payload: "fast"},
+		e.SubmitActions(fc, []act.Action{
+			&act.SendAction{Target: "fast/topic", Payload: "fast", Metadata: map[string]any{"qos": byte(0), "retain": false}},
 		})
 	}
 
@@ -255,14 +266,14 @@ func TestEngine_WorkerPanicRecovery(t *testing.T) {
 		connected: true,
 	}
 
-	e.SubmitActions(panicClient, []common.Action{
-		common.PublishAction{Topic: "panic/topic", QoS: 0, Retain: false, Payload: "panic"},
+	e.SubmitActions(panicClient, []act.Action{
+		&act.SendAction{Target: "panic/topic", Payload: "panic", Metadata: map[string]any{"qos": byte(0), "retain": false}},
 	})
 
 	time.Sleep(100 * time.Millisecond)
 
-	e.SubmitActions(normalClient, []common.Action{
-		common.PublishAction{Topic: "normal/topic", QoS: 0, Retain: false, Payload: "normal"},
+	e.SubmitActions(normalClient, []act.Action{
+		&act.SendAction{Target: "normal/topic", Payload: "normal", Metadata: map[string]any{"qos": byte(0), "retain": false}},
 	})
 
 	assert.Eventually(t, func() bool {
@@ -283,8 +294,8 @@ func TestEngine_OrderPreservation(t *testing.T) {
 	const actionCount = 100
 	for i := 0; i < actionCount; i++ {
 		topic := fmt.Sprintf("topic/%d", i)
-		e.SubmitActions(client, []common.Action{
-			common.PublishAction{Topic: topic, QoS: 0, Retain: false, Payload: "payload"},
+		e.SubmitActions(client, []act.Action{
+			&act.SendAction{Target: topic, Payload: "payload", Metadata: map[string]any{"qos": byte(0), "retain": false}},
 		})
 	}
 
@@ -296,7 +307,7 @@ func TestEngine_OrderPreservation(t *testing.T) {
 
 	expectedOrder := make([]string, actionCount)
 	for i := 0; i < actionCount; i++ {
-		expectedOrder[i] = fmt.Sprintf("publish:topic/%d", i)
+		expectedOrder[i] = fmt.Sprintf("send:topic/%d", i)
 	}
 
 	assert.Equal(t, expectedOrder, callOrder, "actions should be processed in order via hash routing")
@@ -313,7 +324,7 @@ func BenchmarkEngine_SubmitThroughput(b *testing.B) {
 			clientID:  fmt.Sprintf("bench-%d", time.Now().UnixNano()),
 			connected: true,
 		}
-		action := []common.Action{common.PublishAction{Topic: "test"}}
+		action := []act.Action{&act.SendAction{Target: "test"}}
 		for pb.Next() {
 			e.SubmitActions(client, action)
 		}
@@ -338,7 +349,7 @@ func BenchmarkEngine_EndToEndThroughput(b *testing.B) {
 			clientID:  fmt.Sprintf("bench-%d", time.Now().UnixNano()),
 			connected: true,
 		}
-		action := []common.Action{common.PublishAction{Topic: "test"}}
+		action := []act.Action{&act.SendAction{Target: "test"}}
 		for pb.Next() {
 			e.SubmitActions(client, action)
 		}

@@ -79,40 +79,40 @@ func NewLogger(level LogLevel, prefix string) *Logger {
 	}
 }
 
-func (l *Logger) Debug(format string, args ...interface{}) {
+func (l *Logger) Debug(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	l.slogger.Debug(msg)
 }
 
-func (l *Logger) Info(format string, args ...interface{}) {
+func (l *Logger) Info(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	l.slogger.Info(msg)
 }
 
-func (l *Logger) Warn(format string, args ...interface{}) {
+func (l *Logger) Warn(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	l.slogger.Warn(msg)
 }
 
-func (l *Logger) Error(format string, args ...interface{}) {
+func (l *Logger) Error(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	l.slogger.Error(msg)
 }
 
-func (l *Logger) Printf(format string, args ...interface{}) {
+func (l *Logger) Printf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	l.slogger.Info(msg)
 }
 
-func (l *Logger) Print(args ...interface{}) {
+func (l *Logger) Print(args ...any) {
 	l.slogger.Info(fmt.Sprint(args...))
 }
 
-func (l *Logger) Println(args ...interface{}) {
+func (l *Logger) Println(args ...any) {
 	l.slogger.Info(fmt.Sprint(args...))
 }
 
-func (l *Logger) Fatalf(format string, args ...interface{}) {
+func (l *Logger) Fatalf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	l.slogger.Error(msg)
 	os.Exit(1)

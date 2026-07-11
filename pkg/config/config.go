@@ -26,7 +26,7 @@ type EngineConfig struct {
 type RateLimitsConfig struct {
 	Connect    RateLimitConfig `mapstructure:"connect"`
 	Subscribe  RateLimitConfig `mapstructure:"subscribe"`
-	Publish    RateLimitConfig `mapstructure:"publish"`
+	Send       RateLimitConfig `mapstructure:"send"`
 	Disconnect RateLimitConfig `mapstructure:"disconnect"`
 }
 
@@ -68,7 +68,7 @@ type BehaviorConfig struct {
 
 type BehaviorAction struct {
 	Subscribe   *SubscribeActionConfig `mapstructure:"subscribe"`
-	Publish     *PublishActionConfig   `mapstructure:"publish"`
+	Send        *SendActionConfig      `mapstructure:"send"`
 	Unsubscribe *string                `mapstructure:"unsubscribe"`
 	Disconnect  bool                   `mapstructure:"disconnect"`
 	Interval    int64                  `mapstructure:"interval"`
@@ -79,8 +79,8 @@ type SubscribeActionConfig struct {
 	QoS   byte   `mapstructure:"qos" validate:"min=0,max=2"`
 }
 
-type PublishActionConfig struct {
-	Topic   string `mapstructure:"topic" validate:"required"`
+type SendActionConfig struct {
+	Target  string `mapstructure:"target" validate:"required"`
 	Payload string `mapstructure:"payload"`
 	QoS     byte   `mapstructure:"qos" validate:"min=0,max=2"`
 	Retain  bool   `mapstructure:"retain"`
@@ -117,17 +117,17 @@ func LoadConfig(path string) (*Config, error) {
 				return nil, fmt.Errorf("on_connect[%d].subscribe validation failed: %w", i, err)
 			}
 		}
-		if action.Publish != nil {
-			if err := validate.Struct(action.Publish); err != nil {
-				return nil, fmt.Errorf("on_connect[%d].publish validation failed: %w", i, err)
+		if action.Send != nil {
+			if err := validate.Struct(action.Send); err != nil {
+				return nil, fmt.Errorf("on_connect[%d].send validation failed: %w", i, err)
 			}
 		}
 	}
 
 	for i, action := range config.Behavior.OnTimer {
-		if action.Publish != nil {
-			if err := validate.Struct(action.Publish); err != nil {
-				return nil, fmt.Errorf("on_timer[%d].publish validation failed: %w", i, err)
+		if action.Send != nil {
+			if err := validate.Struct(action.Send); err != nil {
+				return nil, fmt.Errorf("on_timer[%d].send validation failed: %w", i, err)
 			}
 		}
 	}
@@ -138,9 +138,9 @@ func LoadConfig(path string) (*Config, error) {
 				return nil, fmt.Errorf("on_message[%d].subscribe validation failed: %w", i, err)
 			}
 		}
-		if action.Publish != nil {
-			if err := validate.Struct(action.Publish); err != nil {
-				return nil, fmt.Errorf("on_message[%d].publish validation failed: %w", i, err)
+		if action.Send != nil {
+			if err := validate.Struct(action.Send); err != nil {
+				return nil, fmt.Errorf("on_message[%d].send validation failed: %w", i, err)
 			}
 		}
 	}

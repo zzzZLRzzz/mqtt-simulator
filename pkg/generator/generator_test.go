@@ -3,7 +3,7 @@ package generator
 import (
 	"testing"
 
-	"mqtt-simulator/pkg/config"
+	"conn-conductor/pkg/config"
 )
 
 func TestDefaultCredentialGenerator(t *testing.T) {

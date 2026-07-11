@@ -1,14 +1,14 @@
 package behavior
 
 import (
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-
-	"mqtt-simulator/pkg/common"
+	act "conn-conductor/pkg/action"
+	"conn-conductor/pkg/client"
+	"conn-conductor/pkg/common"
 )
 
 type Behavior interface {
-	OnConnect(ctx common.ClientContext) []common.Action
-	OnMessage(ctx common.ClientContext, msg mqtt.Message) []common.Action
-	OnTick(ctx common.ClientContext, tick int64) []common.Action
-	OnDisconnect(ctx common.ClientContext)
+	OnConnect(client client.Client) []act.Action
+	OnMessage(client client.Client, msg common.Message) []act.Action
+	OnTick(client client.Client, tick int64) []act.Action
+	OnDisconnect(client client.Client)
 }
