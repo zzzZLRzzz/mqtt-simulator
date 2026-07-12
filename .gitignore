@@ -1,6 +1,6 @@
 # Go build artifacts
-conn-conductor
-conn-conductor.exe
+/conn-conductor
+/conn-conductor.exe
 
 # Go test coverage
 coverage.out
