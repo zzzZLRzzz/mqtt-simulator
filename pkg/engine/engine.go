@@ -58,8 +58,6 @@ type Engine struct {
 	behavior          behavior.Behavior
 	msgCount          int64
 	processedCount    int64
-	running           bool
-	mu                sync.Mutex
 	wg                sync.WaitGroup
 	actionQueues      []chan ActionWithContext
 	workerCount       int
@@ -70,12 +68,14 @@ type Engine struct {
 	disconnectLimiter *rate.Limiter
 	globalTicker      *time.Ticker
 	globalTick        int64
-	stopChan          chan struct{}
 	credGen           generator.CredentialGenerator
 	connectorFactory  connector.ConnectorFactory
+	ctx               context.Context
+	cancel            context.CancelFunc
 }
 
 func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger, opts ...EngineOption) *Engine {
+	ctx, cancel := context.WithCancel(context.Background())
 	e := &Engine{
 		config:       cfg,
 		logger:       logger,
@@ -84,6 +84,8 @@ func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger,
 		queueSize:    DefaultQueueSize,
 		actionQueues: make([]chan ActionWithContext, DefaultWorkerCount),
 		credGen:      generator.NewDefaultCredentialGenerator(cfg.Engine.Credentials),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 
 	for _, opt := range opts {
@@ -202,21 +204,21 @@ func (e *Engine) executeAction(client client.Client, act action.Action) {
 	switch act.(type) {
 	case *action.SendAction:
 		if e.sendLimiter != nil {
-			if err := e.sendLimiter.Wait(context.Background()); err != nil {
+			if err := e.sendLimiter.Wait(e.ctx); err != nil {
 				e.logger.Error("[%s] send rate limit error: %v", client.ID(), err)
 				return
 			}
 		}
 	case *action.SubscribeAction:
 		if e.subscribeLimiter != nil {
-			if err := e.subscribeLimiter.Wait(context.Background()); err != nil {
+			if err := e.subscribeLimiter.Wait(e.ctx); err != nil {
 				e.logger.Error("[%s] subscribe rate limit error: %v", client.ID(), err)
 				return
 			}
 		}
 	case *action.DisconnectAction:
 		if e.disconnectLimiter != nil {
-			if err := e.disconnectLimiter.Wait(context.Background()); err != nil {
+			if err := e.disconnectLimiter.Wait(e.ctx); err != nil {
 				e.logger.Error("[%s] disconnect rate limit error: %v", client.ID(), err)
 				return
 			}
@@ -250,7 +252,7 @@ func (e *Engine) connectAll() {
 			defer connectWg.Done()
 
 			if e.connectLimiter != nil {
-				if err := e.connectLimiter.Wait(context.Background()); err != nil {
+				if err := e.connectLimiter.Wait(e.ctx); err != nil {
 					e.logger.Error("[client-%d] connect rate limit error: %v", index, err)
 					return
 				}
@@ -291,14 +293,13 @@ func (e *Engine) handleAction(client client.Client, actions []action.Action) {
 
 func (e *Engine) startGlobalTicker() {
 	e.globalTicker = time.NewTicker(1 * time.Second)
-	e.stopChan = make(chan struct{})
 
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
 		for {
 			select {
-			case <-e.stopChan:
+			case <-e.ctx.Done():
 				return
 			case <-e.globalTicker.C:
 				tick := atomic.AddInt64(&e.globalTick, 1)
@@ -329,17 +330,9 @@ func (e *Engine) stopGlobalTicker() {
 		e.globalTicker.Stop()
 		e.globalTicker = nil
 	}
-	if e.stopChan != nil {
-		close(e.stopChan)
-		e.stopChan = nil
-	}
 }
 
 func (e *Engine) Run() error {
-	e.mu.Lock()
-	e.running = true
-	e.mu.Unlock()
-
 	e.pool = connector.NewConnectionPool()
 
 	e.logger.Info("Starting behavior with %d connections...", e.config.Engine.Connections)
@@ -356,9 +349,7 @@ func (e *Engine) Run() error {
 }
 
 func (e *Engine) Stop() {
-	e.mu.Lock()
-	e.running = false
-	e.mu.Unlock()
+	e.cancel()
 
 	e.stopGlobalTicker()
 

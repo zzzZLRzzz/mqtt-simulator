@@ -4,8 +4,9 @@ metrics:
   prometheus_port: 9090
 engine:
   broker:
-    address: tcp://broker.emqx.io:1883
-    keepalive: 60
+    address: broker.emqx.io:1883
+    tls: false
+    keepalive: 60s
     timeout: 30s
   credentials:
     client_id_prefix: "subscriber-"

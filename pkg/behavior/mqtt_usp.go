@@ -87,14 +87,14 @@ func (b *USPBehavior) OnConnect(client client.Client) []act.Action {
 	}
 
 	return []act.Action{
+		&act.SubscribeAction{
+			Target:   formatTopic(b.agentTopicFmt, b.agentID),
+			Metadata: (&mqttmeta.MQTTSubscribeMetadata{QoS: 1}).ToMap(),
+		},
 		&act.SendAction{
 			Target:   target,
 			Payload:  bootPayload,
 			Metadata: (&mqttmeta.MQTTPublishMetadata{QoS: 1, Retain: false}).ToMap(),
-		},
-		&act.SubscribeAction{
-			Target:   formatTopic(b.agentTopicFmt, b.agentID),
-			Metadata: (&mqttmeta.MQTTSubscribeMetadata{QoS: 1}).ToMap(),
 		},
 	}
 }

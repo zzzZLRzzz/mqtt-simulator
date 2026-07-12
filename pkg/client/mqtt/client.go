@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,7 +153,15 @@ func (m *Client) StopReceiving() {
 }
 
 func connectConfiguration(broker config.Broker, creds config.Creds, opts *mqttlib.ClientOptions) error {
-	opts.AddBroker(broker.Address)
+	brokerAddr := broker.Address
+	if !strings.Contains(brokerAddr, "://") {
+		if broker.TLS {
+			brokerAddr = "ssl://" + brokerAddr
+		} else {
+			brokerAddr = "tcp://" + brokerAddr
+		}
+	}
+	opts.AddBroker(brokerAddr)
 	opts.SetClientID(creds.ClientID)
 	opts.SetUsername(creds.Username)
 	opts.SetPassword(creds.Password)
