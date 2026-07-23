@@ -70,6 +70,10 @@ func formatTopic(fmtStr, id string) string {
 	return fmtStr
 }
 
+func (b *USPBehavior) SupportedConnectors() []string {
+	return []string{config.ConnectorTypeMQTT}
+}
+
 func (b *USPBehavior) OnConnect(client client.Client) []act.Action {
 	clientID := client.ID()
 
@@ -110,7 +114,7 @@ func (b *USPBehavior) OnMessage(client client.Client, msg common.Message) []act.
 		b.logger.Info("[%s] received USP message from %s, length: %d", clientID, topic, len(payload))
 	}
 
-	record, err := b.parseUSPRecord(payload)
+	record, err := b.parseUSPRecord([]byte(payload))
 	if err != nil {
 		b.logger.Error("[%s] failed to parse USP record: %v", clientID, err)
 		return nil

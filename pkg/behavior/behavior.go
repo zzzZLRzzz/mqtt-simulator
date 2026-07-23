@@ -7,6 +7,7 @@ import (
 )
 
 type Behavior interface {
+	SupportedConnectors() []string
 	OnConnect(client client.Client) []act.Action
 	OnMessage(client client.Client, msg common.Message) []act.Action
 	OnTick(client client.Client, tick int64) []act.Action

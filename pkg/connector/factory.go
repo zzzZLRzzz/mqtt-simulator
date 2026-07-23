@@ -5,6 +5,7 @@ import (
 	"conn-conductor/pkg/behavior"
 	"conn-conductor/pkg/client"
 	mqttclient "conn-conductor/pkg/client/mqtt"
+	xmppclient "conn-conductor/pkg/client/xmpp"
 	"conn-conductor/pkg/config"
 	"conn-conductor/pkg/logging"
 )
@@ -30,3 +31,21 @@ func (f *MQTTConnectorFactory) CreateClient(index int, creds config.Creds, beh b
 }
 
 var _ ConnectorFactory = (*MQTTConnectorFactory)(nil)
+
+type XMPPConnectorFactory struct {
+	logger *logging.Logger
+	broker config.Broker
+}
+
+func NewXMPPConnectorFactory(logger *logging.Logger, broker config.Broker) *XMPPConnectorFactory {
+	return &XMPPConnectorFactory{
+		logger: logger,
+		broker: broker,
+	}
+}
+
+func (f *XMPPConnectorFactory) CreateClient(index int, creds config.Creds, beh behavior.Behavior, actionHandler act.ActionHandler) client.Client {
+	return xmppclient.NewClient(f.logger, f.broker, index, creds, beh, actionHandler)
+}
+
+var _ ConnectorFactory = (*XMPPConnectorFactory)(nil)

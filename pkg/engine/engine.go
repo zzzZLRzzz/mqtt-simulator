@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"hash/fnv"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -74,7 +76,7 @@ type Engine struct {
 	cancel            context.CancelFunc
 }
 
-func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger, opts ...EngineOption) *Engine {
+func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger, opts ...EngineOption) (*Engine, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &Engine{
 		config:       cfg,
@@ -92,8 +94,25 @@ func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger,
 		opt(e)
 	}
 
+	if !slices.Contains(config.ConnectorTypes[:], cfg.Engine.Connector) {
+		return nil, fmt.Errorf("invalid connector type: %s, must be one of: %v",
+			cfg.Engine.Connector, config.ConnectorTypes)
+	}
+
+	if !slices.Contains(beh.SupportedConnectors(), cfg.Engine.Connector) {
+		return nil, fmt.Errorf("behavior %s does not support connector %s, supported connectors: %v",
+			cfg.Behavior.Mode, cfg.Engine.Connector, beh.SupportedConnectors())
+	}
+
 	if e.connectorFactory == nil {
-		e.connectorFactory = connector.NewMQTTConnectorFactory(logger, cfg.Engine.Broker)
+		switch cfg.Engine.Connector {
+		case config.ConnectorTypeXMPP:
+			e.connectorFactory = connector.NewXMPPConnectorFactory(logger, cfg.Engine.Broker)
+			logger.Info("Using XMPP connector factory")
+		case config.ConnectorTypeMQTT:
+			e.connectorFactory = connector.NewMQTTConnectorFactory(logger, cfg.Engine.Broker)
+			logger.Info("Using MQTT connector factory")
+		}
 	}
 
 	e.actionQueues = make([]chan ActionWithContext, e.workerCount)
@@ -103,7 +122,7 @@ func NewEngine(cfg config.Config, beh behavior.Behavior, logger *logging.Logger,
 
 	e.initRateLimiters(cfg.Engine.RateLimits, logger)
 
-	return e
+	return e, nil
 }
 
 func (e *Engine) initRateLimiters(rateLimits config.RateLimitsConfig, logger *logging.Logger) {

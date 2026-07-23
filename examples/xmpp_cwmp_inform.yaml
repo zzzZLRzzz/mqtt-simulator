@@ -1,0 +1,33 @@
+log_level: info
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  connector: xmpp
+  broker:
+    address: xmpp-server.com:5222
+    tls: true
+    keepalive: 60s
+    timeout: 30s
+  credentials:
+    client_id: "testxmpp0@localhost"
+    password: "testxmpp0"
+  connections: 1
+behavior:
+  mode: xmpp_cwmp
+  custom:
+    acs_url: "https://acs.com"
+    connection_request_username: "username"
+    connection_request_password: "password"
+    inform_interval: 5
+    manufacturer: "ZLR"
+    oui: "000BDB"
+    product_class: "ZLR-1008P"
+    serial_number: "ZLR123456789"
+    data_model_version: "1.0"
+    hardware_version: "1.0"
+    software_version: "1.0.0"
+    provisioning_code: ""
+    parameter_key: ""
+    connection_request_url: ""
+    alias_based_addressing: "0"

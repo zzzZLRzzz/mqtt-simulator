@@ -8,8 +8,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"conn-conductor/pkg/action"
 	act "conn-conductor/pkg/action"
+	"conn-conductor/pkg/behavior"
 	"conn-conductor/pkg/client"
+	"conn-conductor/pkg/common"
 	"conn-conductor/pkg/config"
 	"conn-conductor/pkg/logging"
 )
@@ -104,6 +107,28 @@ func (m *MockMQTTClient) GetCallOrder() []string {
 
 var _ client.Client = (*MockMQTTClient)(nil)
 
+type mockBehavior struct{}
+
+func (m *mockBehavior) SupportedConnectors() []string {
+	return []string{config.ConnectorTypeMQTT}
+}
+
+func (m *mockBehavior) OnConnect(client client.Client) []action.Action {
+	return nil
+}
+
+func (m *mockBehavior) OnMessage(client client.Client, msg common.Message) []action.Action {
+	return nil
+}
+
+func (m *mockBehavior) OnTick(client client.Client, tick int64) []action.Action {
+	return nil
+}
+
+func (m *mockBehavior) OnDisconnect(client client.Client) {}
+
+var _ behavior.Behavior = (*mockBehavior)(nil)
+
 func newTestEngine(opts ...EngineOption) *Engine {
 	cfg := config.Config{
 		Engine: config.EngineConfig{
@@ -113,6 +138,7 @@ func newTestEngine(opts ...EngineOption) *Engine {
 			},
 			Connections:     1,
 			EnableRateLimit: false,
+			Connector:       config.ConnectorTypeMQTT,
 		},
 		Behavior: config.BehaviorConfig{
 			Mode: config.BehaviorModeDeclarative,
@@ -121,7 +147,8 @@ func newTestEngine(opts ...EngineOption) *Engine {
 
 	logger := logging.NewLogger(logging.LogLevelError, "test")
 
-	return NewEngine(cfg, nil, logger, opts...)
+	e, _ := NewEngine(cfg, &mockBehavior{}, logger, opts...)
+	return e
 }
 
 func TestEngine_SubmitActions_ConcurrentSafety(t *testing.T) {

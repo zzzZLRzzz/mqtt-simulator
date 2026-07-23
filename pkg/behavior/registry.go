@@ -12,6 +12,7 @@ var registry = make(map[string]BehaviorFactory)
 func init() {
 	Register(config.BehaviorModeDeclarative, NewDeclarativeBehavior)
 	Register("mqtt_usp", NewUSPBehavior)
+	Register("xmpp_cwmp", NewCWMPBehavior)
 }
 
 func Register(name string, factory BehaviorFactory) {

@@ -42,12 +42,16 @@ func (b *DeclarativeBehavior) initTimerActions() {
 	}
 }
 
+func (b *DeclarativeBehavior) SupportedConnectors() []string {
+	return []string{config.ConnectorTypeMQTT}
+}
+
 func (b *DeclarativeBehavior) OnConnect(client client.Client) []act.Action {
 	return b.actionsToCommonActions(b.config.OnConnect, client.ID(), "", "")
 }
 
 func (b *DeclarativeBehavior) OnMessage(client client.Client, msg common.Message) []act.Action {
-	payload := string(msg.Payload())
+	payload := msg.Payload()
 	clientID := client.ID()
 
 	msgMeta := mqttmeta.ParseMessageMetadata(msg.Metadata())

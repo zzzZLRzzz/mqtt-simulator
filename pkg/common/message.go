@@ -1,6 +1,6 @@
 package common
 
 type Message interface {
-	Payload() []byte
+	Payload() string
 	Metadata() map[string]any
 }

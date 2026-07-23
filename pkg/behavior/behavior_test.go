@@ -49,12 +49,12 @@ var _ client.Client = (*mockClientContext)(nil)
 
 type mockMessage struct {
 	topic    string
-	payload  []byte
+	payload  string
 	qos      byte
 	metadata map[string]any
 }
 
-func (m *mockMessage) Payload() []byte {
+func (m *mockMessage) Payload() string {
 	return m.payload
 }
 
@@ -223,7 +223,7 @@ func TestDeclarativeBehavior_OnMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewDeclarativeBehavior(tt.config, logger)
 			client := &mockClientContext{clientID: tt.clientID}
-			msg := &mockMessage{topic: tt.msgTopic, payload: []byte(tt.msgPayload)}
+			msg := &mockMessage{topic: tt.msgTopic, payload: tt.msgPayload}
 			actions := b.OnMessage(client, msg)
 
 			if len(actions) != tt.wantActions {
@@ -303,7 +303,7 @@ func TestDeclarativeBehavior_TemplateRendering(t *testing.T) {
 	}, logger)
 
 	client := &mockClientContext{clientID: "my-client"}
-	msg := &mockMessage{topic: "test/topic", payload: []byte("hello")}
+	msg := &mockMessage{topic: "test/topic", payload: "hello"}
 
 	actions := b.OnMessage(client, msg)
 	if len(actions) != 1 {
@@ -363,7 +363,7 @@ func TestDeclarativeBehavior_Disconnect(t *testing.T) {
 	}, logger)
 
 	client := &mockClientContext{clientID: "client1"}
-	msg := &mockMessage{topic: "cmd/disconnect", payload: []byte("")}
+	msg := &mockMessage{topic: "cmd/disconnect", payload: ""}
 	actions := b.OnMessage(client, msg)
 
 	if len(actions) != 1 {

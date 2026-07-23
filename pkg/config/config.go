@@ -19,6 +19,7 @@ type EngineConfig struct {
 	Broker          Broker           `mapstructure:"broker" validate:"required"`
 	Credentials     Creds            `mapstructure:"credentials"`
 	Connections     int              `mapstructure:"connections" validate:"min=1"`
+	Connector       string           `mapstructure:"connector"`
 	EnableRateLimit bool             `mapstructure:"enable_rate_limit"`
 	RateLimits      RateLimitsConfig `mapstructure:"rate_limits"`
 }
@@ -90,6 +91,13 @@ type SendActionConfig struct {
 const (
 	BehaviorModeDeclarative = "declarative"
 )
+
+const (
+	ConnectorTypeMQTT = "mqtt"
+	ConnectorTypeXMPP = "xmpp"
+)
+
+var ConnectorTypes = [...]string{ConnectorTypeMQTT, ConnectorTypeXMPP}
 
 func LoadConfig(path string) (*Config, error) {
 	v := viper.New()

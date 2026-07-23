@@ -10,6 +10,7 @@ A configurable connection conductor for managing and simulating long-lived conne
 - **Declarative Behavior**: Define client behavior through YAML configuration
 - **Custom Behavior**: Implement custom behavior via the `Behavior` interface with registry pattern
 - **USP/TR-369 Support**: Built-in support for USP/TR-369 protocol with boot event notification
+- **CWMP/TR-069 Support**: Built-in support for CWMP (CPE WAN Management Protocol) with ConnectionRequest handling and periodic Inform sending
 - **Rate Limiting**: Configurable rate limits for connect, subscribe, send, and disconnect operations
 - **Metrics**: Built-in Prometheus metrics for monitoring
 - **Template Support**: Go template support for dynamic target and payload generation
@@ -124,6 +125,50 @@ behavior:
 
 This configuration enables USP/TR-369 protocol behavior, which sends a Boot event notification on MQTT connect. The `custom` section allows passing behavior-specific configuration parameters.
 
+### Example: CWMP/TR-069 Inform
+
+```yaml
+log_level: info
+metrics:
+  enable: true
+  prometheus_port: 9090
+engine:
+  connector: xmpp
+  broker:
+    address: xmpp.example.com:5222
+    tls: true
+    keepalive: 60s
+    timeout: 30s
+  credentials:
+    client_id: "cpe-001@example.com"
+    password: "secret"
+  connections: 1
+behavior:
+  mode: xmpp_cwmp
+  custom:
+    acs_url: "https://acs.example.com"
+    connection_request_username: "admin"
+    connection_request_password: "password"
+    inform_interval: 300
+    manufacturer: "Vendor"
+    oui: "000BDB"
+    product_class: "Product"
+    serial_number: "SN12345"
+    data_model_version: "1.0"
+    hardware_version: "V1.0"
+    software_version: "1.0.0"
+    provisioning_code: ""
+    parameter_key: ""
+    connection_request_url: ""
+    alias_based_addressing: "0"
+```
+
+This configuration enables CWMP/TR-069 protocol behavior for CPE (Customer Premises Equipment) simulation:
+- **XMPP Connection**: Used for receiving ConnectionRequest IQ from ACS (Auto Configuration Server)
+- **HTTP Inform**: Used for sending SOAP Inform requests to ACS
+- **Periodic Inform**: Sends Inform at configurable intervals (`inform_interval` in seconds)
+- **ConnectionRequest Handling**: Authenticates and responds to ACS ConnectionRequest IQ get
+
 ### Example: Custom Mode
 
 ```yaml
@@ -236,6 +281,7 @@ The behavior registry allows dynamic behavior selection based on the `mode` fiel
 | `declarative` | `DeclarativeBehavior` | YAML-driven behavior |
 | `custom` | `USPBehavior` | USP/TR-369 behavior |
 | `usp` | `USPBehavior` | USP/TR-369 behavior (alias) |
+| `xmpp_cwmp` | `CWMPBehavior` | CWMP/TR-069 behavior with ConnectionRequest handling and periodic Inform |
 
 Custom behaviors can be registered using `behavior.Register(name, factory)`.
 
@@ -261,17 +307,22 @@ conn-conductor/
 ├── pkg/
 │   ├── action/             # Action definitions
 │   │   ├── action.go       # Generic action interfaces
-│   │   └── mqtt/           # MQTT-specific metadata
-│   │       └── metadata.go # MQTT publish/subscribe metadata
+│   │   ├── mqtt/           # MQTT-specific metadata
+│   │   │   └── metadata.go # MQTT publish/subscribe metadata
+│   │   └── xmpp/           # XMPP-specific metadata
+│   │       └── metadata.go # XMPP IQ stanza metadata
 │   ├── behavior/           # Behavior implementations
 │   │   ├── behavior.go     # Behavior interface
 │   │   ├── mqtt_declarative.go # MQTT declarative behavior
 │   │   ├── registry.go     # Behavior registry and factory pattern
-│   │   └── usp.go          # USP/TR-369 behavior with boot event
+│   │   ├── usp.go          # USP/TR-369 behavior with boot event
+│   │   └── xmpp_cwmp.go    # CWMP/TR-069 behavior with Inform sending
 │   ├── client/             # Client interfaces
 │   │   ├── client.go       # Generic Client interface
-│   │   └── mqtt/           # MQTT client implementation
-│   │       └── client.go   # MQTT client wrapper
+│   │   ├── mqtt/           # MQTT client implementation
+│   │   │   └── client.go   # MQTT client wrapper
+│   │   └── xmpp/           # XMPP client implementation
+│   │       └── client.go   # XMPP client wrapper
 │   ├── common/             # Common types
 │   │   └── message.go      # Message interface
 │   ├── config/             # Configuration handling
@@ -279,6 +330,9 @@ conn-conductor/
 │   │   └── template.go     # Template functions
 │   ├── connector/          # Connection management
 │   │   └── pool.go         # Connection pool
+│   ├── cwmp/               # CWMP/TR-069 protocol definitions
+│   │   ├── model.go        # CWMP SOAP model definitions
+│   │   └── cwmp-msg.go     # CWMP Inform message builder
 │   ├── engine/             # Core engine
 │   │   └── engine.go       # Engine implementation
 │   ├── generator/          # Credential generation
@@ -297,7 +351,8 @@ conn-conductor/
     ├── mqtt_publisher.yaml
     ├── mqtt_subscriber.yaml
     ├── device.yaml
-    └── usp-boot.yaml       # USP boot event example
+    ├── usp-boot.yaml       # USP boot event example
+    └── xmpp_cwmp_inform.yaml # CWMP Inform example
 ```
 
 ## Architecture
@@ -409,5 +464,5 @@ Broker publishes message
 | Protocol | Status | Notes |
 |----------|--------|-------|
 | MQTT | ✅ Supported | Using Eclipse Paho |
-| XMPP | 🔜 Planned | - |
+| XMPP | ✅ Supported | Using go-xmpp |
 | WebSocket | 🔜 Planned | - |

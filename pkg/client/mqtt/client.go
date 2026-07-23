@@ -46,8 +46,8 @@ type messageAdapter struct {
 	msg mqttlib.Message
 }
 
-func (m *messageAdapter) Payload() []byte {
-	return m.msg.Payload()
+func (m *messageAdapter) Payload() string {
+	return string(m.msg.Payload())
 }
 
 func (m *messageAdapter) Metadata() map[string]any {

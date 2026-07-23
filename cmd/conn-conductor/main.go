@@ -8,7 +8,6 @@ import (
 
 	"conn-conductor/pkg/behavior"
 	"conn-conductor/pkg/config"
-	"conn-conductor/pkg/connector"
 	"conn-conductor/pkg/engine"
 	"conn-conductor/pkg/logging"
 	"conn-conductor/pkg/metrics"
@@ -40,8 +39,10 @@ func main() {
 
 	beh := behavior.NewBehavior(cfg.Behavior, logger)
 
-	connectorFactory := connector.NewMQTTConnectorFactory(logger, cfg.Engine.Broker)
-	sim := engine.NewEngine(*cfg, beh, logger, engine.WithConnectorFactory(connectorFactory))
+	sim, err := engine.NewEngine(*cfg, beh, logger)
+	if err != nil {
+		logger.Fatalf("Failed to create engine: %v", err)
+	}
 
 	if err := sim.Run(); err != nil {
 		logger.Fatalf("Failed to start simulator: %v", err)

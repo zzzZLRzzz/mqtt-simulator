@@ -3,6 +3,7 @@ metrics:
   enable: true
   prometheus_port: 9090
 engine:
+  connector: mqtt
   broker:
     address: broker.emqx.io:8883
     tls: true
